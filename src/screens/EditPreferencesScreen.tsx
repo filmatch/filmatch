@@ -66,6 +66,41 @@ export default function EditPreferencesScreen() {
       { title: 'the notebook', year: '(2004)', uri: 'https://image.tmdb.org/t/p/w185/rNzQyW4f8B8cQeg7Dgj3n6eT5tu.jpg' },
       { title: 'her', year: '(2013)', uri: 'https://image.tmdb.org/t/p/w185/eCOtqtfvn7mxGl6nfmq4b1exl3i.jpg' },
     ],
+    comedy: [
+      { title: 'the grand budapest hotel', year: '(2014)', uri: 'https://image.tmdb.org/t/p/w185/eWdyYQreja6JGCzqHWXpWHDrrPo.jpg' },
+      { title: 'superbad', year: '(2007)', uri: 'https://image.tmdb.org/t/p/w185/ek8e8txUybtWQ0nlJGqOCMGdsvZ.jpg' },
+      { title: 'groundhog day', year: '(1993)', uri: 'https://image.tmdb.org/t/p/w185/gCQt9ujSzcCR0js7QwNwx73PkJB.jpg' },
+    ],
+    thriller: [
+      { title: 'se7en', year: '(1995)', uri: 'https://image.tmdb.org/t/p/w185/6yoghtyTpznpBik8EngEmJskVUO.jpg' },
+      { title: 'gone girl', year: '(2014)', uri: 'https://image.tmdb.org/t/p/w185/lv5xShBIDPe7m4ufdlV0IAc7Avk.jpg' },
+      { title: 'prisoners', year: '(2013)', uri: 'https://image.tmdb.org/t/p/w185/uhviyknTT5cEQXbn6vWIqfM4vGm.jpg' },
+    ],
+    drama: [
+      { title: 'the shawshank redemption', year: '(1994)', uri: 'https://image.tmdb.org/t/p/w185/9cqNxx0GxF0bflZmeSMuL5tnGzr.jpg' },
+      { title: 'parasite', year: '(2019)', uri: 'https://image.tmdb.org/t/p/w185/7IiTTgloJzvGI1TAYymCfbfl3vT.jpg' },
+      { title: 'the godfather', year: '(1972)', uri: 'https://image.tmdb.org/t/p/w185/3bhkrj58Vtu7enYsRolD1fZdja1.jpg' },
+    ],
+    scifi: [
+      { title: 'inception', year: '(2010)', uri: 'https://image.tmdb.org/t/p/w185/9gk7adHYeDvHkCSEqAvQNLV5Uge.jpg' },
+      { title: 'interstellar', year: '(2014)', uri: 'https://image.tmdb.org/t/p/w185/gEU2QniE6E77NI6lCU6MxlNBvIx.jpg' },
+      { title: 'the matrix', year: '(1999)', uri: 'https://image.tmdb.org/t/p/w185/f89U3ADr1oiB1s9GkdPOEpXUk5H.jpg' },
+    ],
+    fantasy: [
+      { title: 'spirited away', year: '(2001)', uri: 'https://image.tmdb.org/t/p/w185/39wmItIWsg5sZMyRUHLkWBcuVCM.jpg' },
+      { title: 'pan\'s labyrinth', year: '(2006)', uri: 'https://image.tmdb.org/t/p/w185/k9gWDkzjh7ntghYs1aziKEncI5d.jpg' },
+      { title: 'lord of the rings', year: '(2001)', uri: 'https://image.tmdb.org/t/p/w185/6oom5QYQ2yQTMJIbnvbkBL9cHo6.jpg' },
+    ],
+    animation: [
+      { title: 'spider-man: into the spider-verse', year: '(2018)', uri: 'https://image.tmdb.org/t/p/w185/iiZZdoQBEYBv6id8su7ImL0oCbD.jpg' },
+      { title: 'wall-e', year: '(2008)', uri: 'https://image.tmdb.org/t/p/w185/hbhFnRzzg6ZDmm8YAmxBnQpQIPh.jpg' },
+      { title: 'toy story', year: '(1995)', uri: 'https://image.tmdb.org/t/p/w185/uXDfjJbdP4ijW5hWSBrPrlKpxab.jpg' },
+    ],
+    documentary: [
+      { title: 'free solo', year: '(2018)', uri: 'https://image.tmdb.org/t/p/w185/v4QfYZMACODlWul9doN9RxE99ag.jpg' },
+      { title: 'won\'t you be my neighbor?', year: '(2018)', uri: 'https://image.tmdb.org/t/p/w185/2vM0QWhzYIfw1Uc7W0jFI3pr5WP.jpg' },
+      { title: 'planet earth ii', year: '(2016)', uri: 'https://image.tmdb.org/t/p/w185/mZDAPlh4XmLhVGLAAiHNu2z9UYn.jpg' },
+    ],
   };
 
   useEffect(() => {
@@ -110,6 +145,17 @@ export default function EditPreferencesScreen() {
   };
 
   const saveChanges = async () => {
+    // Validate all requirements before saving
+    if (!canContinueFavorites) {
+      return Alert.alert('incomplete', `you need to add ${4 - favorites.length} more favorite(s)`);
+    }
+    if (!canContinueRecents) {
+      return Alert.alert('incomplete', `you need to add ${4 - recentWatches.length} more recent watch(es)`);
+    }
+    if (!canContinueGenres) {
+      return Alert.alert('incomplete', 'please rate all required genres before saving');
+    }
+
     try {
       setSaving(true);
       const currentUser = FirebaseAuthService.getCurrentUser();
@@ -549,7 +595,9 @@ const s = StyleSheet.create({
   numericRating: { color: C.text, fontSize: 14, marginLeft: 8, opacity: 0.8 },
 
   card: { backgroundColor: C.card, borderRadius: 20, paddingVertical: 16, paddingHorizontal: 14, borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)' },
-  cardTitle: { color: C.text, textAlign: 'center', fontSize: 20, marginTop: 4, marginBottom: 12, textTransform: 'lowercase', fontWeight: '700' },
+  cardTitleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 4, marginBottom: 12 },
+  cardTitle: { color: C.text, textAlign: 'center', fontSize: 20, textTransform: 'lowercase', fontWeight: '700' },
+  requiredBadge: { backgroundColor: C.accent, color: C.text, fontSize: 10, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, textTransform: 'lowercase', fontWeight: '700' },
   postersRow: { flexDirection: 'row', justifyContent: 'space-around', marginTop: 8, paddingHorizontal: 8 },
   posterCell: { width: 80, alignItems: 'center' },
   posterBig: { width: 80, height: 120, borderRadius: 8 },
