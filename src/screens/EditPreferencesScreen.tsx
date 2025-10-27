@@ -218,8 +218,9 @@ export default function EditPreferencesScreen() {
   const canContinueFavorites = favorites.length >= 4;
   const canContinueRecents = recentWatches.length >= 4;
   
-  const allGenres = ['action', 'horror', 'romance'];
-  const canContinueGenres = allGenres.every(g => 
+  // Only require 4 mandatory genres to be rated
+  const mandatoryGenres = ['action', 'horror', 'romance', 'comedy'];
+  const canContinueGenres = mandatoryGenres.every(g => 
     genreRatings.some(rating => rating.genre === g && rating.rating > 0)
   );
 
@@ -404,63 +405,7 @@ export default function EditPreferencesScreen() {
           )}
         </View>
 
-        {/* GENRES STEP */}
-        <View style={s.step}>
-          <Text style={s.bigTitle}>rate these genres</Text>
-          <Text style={s.subtitle}>how do you feel about these genres?</Text>
 
-          <View style={s.heroDots}>
-            <View style={[s.dot, s.dotActive]} />
-            <View style={s.dot} />
-            <View style={s.dot} />
-          </View>
-
-          {[
-            { key: 'action', title: 'action', question: 'how do you feel about action?' },
-            { key: 'horror', title: 'horror', question: 'how do you feel about horror?' },
-            { key: 'romance', title: 'romance', question: 'how do you feel about romance?' },
-          ].map((c, idx) => {
-            const getRating = (g: string) => genreRatings.find((x) => x.genre === g)?.rating || 0;
-            
-            return (
-              <View key={c.key} style={[s.card, { marginTop: idx === 0 ? 24 : 18 }]}>
-                <Text style={s.cardTitle}>{c.title}</Text>
-
-                <View style={s.postersRow}>
-                  {posterSets[c.key].map((p, i) => (
-                    <View key={i} style={s.posterCell}>
-                      <Image source={{ uri: p.uri }} style={s.posterBig} />
-                      <Text numberOfLines={1} style={s.posterCaption}>{p.title}</Text>
-                      <Text style={s.posterYear}>{p.year}</Text>
-                    </View>
-                  ))}
-                </View>
-
-                <Text style={s.cardQuestion}>{c.question}</Text>
-
-                <View style={s.starsRow}>
-                  {[1, 2, 3, 4, 5].map((star) => (
-                    <TouchableOpacity key={star} onPress={() => updateGenreRating(c.title, star)} style={s.starButton}>
-                      <Text
-                        style={[
-                          s.starText,
-                          { fontFamily: starFontFamily },
-                          getRating(c.title) >= star ? s.starFilled : s.starEmpty,
-                        ]}
-                      >
-                        ★
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              </View>
-            );
-          })}
-
-          {!canContinueGenres && (
-            <Text style={s.requirementText}>please rate all genres to continue</Text>
-          )}
-        </View>
       </ScrollView>
 
       <View style={s.footer}>
