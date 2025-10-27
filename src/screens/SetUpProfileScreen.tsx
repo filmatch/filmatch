@@ -22,14 +22,14 @@ const CITY_LIST = [
   'ığdır','karabük','kilis','düzce'
 ];
 
-// alphabetize with Turkish rules
 const SORTED_CITIES = [...CITY_LIST].sort((a, b) =>
   a.localeCompare(b, 'tr', { sensitivity: 'base' })
 );
 
 export default function SetUpProfileScreen({ navigation }: any) {
   const [age, setAge] = useState<string>('');
-  const [gender, setGender] = useState<string>('');      // single choice
+  const [gender, setGender] = useState<string>('');
+  const [genderPreferences, setGenderPreferences] = useState<string[]>([]); // NEW: multi-select
   const [city, setCity] = useState<string>('');
   const [bio, setBio] = useState<string>('');
   const [cityOpen, setCityOpen] = useState(false);
@@ -38,10 +38,17 @@ export default function SetUpProfileScreen({ navigation }: any) {
   const ageNum = Number(age);
   const ageValid = Number.isFinite(ageNum) && ageNum >= 18 && ageNum <= 100;
   const genderValid = !!gender;
+  const genderPrefValid = genderPreferences.length > 0; // NEW: at least 1 selected
   const cityValid = city.trim().length > 0;
   const bioRemaining = 160 - bio.length;
 
-  const canContinue = ageValid && genderValid && cityValid && !saving;
+  const canContinue = ageValid && genderValid && genderPrefValid && cityValid && !saving;
+
+  const toggleGenderPref = (g: string) => {
+    setGenderPreferences(prev =>
+      prev.includes(g) ? prev.filter(x => x !== g) : [...prev, g]
+    );
+  };
 
   const save = async () => {
     if (!canContinue) return;
@@ -53,6 +60,7 @@ export default function SetUpProfileScreen({ navigation }: any) {
       await FirestoreService.updateUserProfile(u.uid, {
         age: ageNum,
         gender,
+        genderPreferences, // NEW
         city: city.trim(),
         bio: bio.trim() || undefined,
         hasProfile: true,
@@ -94,6 +102,22 @@ export default function SetUpProfileScreen({ navigation }: any) {
           ))}
         </View>
 
+        {/* NEW: Gender preferences */}
+        <Text style={[s.label, { marginTop: 16 }]}>
+          genders i'd like to match <Text style={s.dim}>(pick at least 1)</Text>
+        </Text>
+        <View style={s.chips}>
+          {GENDERS.map((g) => (
+            <TouchableOpacity
+              key={g}
+              onPress={() => toggleGenderPref(g)}
+              style={[s.chip, genderPreferences.includes(g) && s.chipOn]}
+            >
+              <Text style={[s.chipTxt, genderPreferences.includes(g) && s.chipTxtOn]}>{g}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
         <Text style={[s.label, { marginTop: 16 }]}>city</Text>
         <TouchableOpacity onPress={() => setCityOpen(true)} style={s.picker}>
           <Text style={city ? s.pickerTxt : s.pickerPlaceholder}>{city || 'choose your city'}</Text>
@@ -122,7 +146,6 @@ export default function SetUpProfileScreen({ navigation }: any) {
         <Text style={s.primaryText}>{saving ? 'saving…' : 'continue'}</Text>
       </TouchableOpacity>
 
-      {/* City picker as compact bottom sheet */}
       <Modal visible={cityOpen} transparent animationType="fade" onRequestClose={() => setCityOpen(false)}>
         <View style={s.modalOverlay}>
           <View style={s.modalCard}>
@@ -155,7 +178,6 @@ export default function SetUpProfileScreen({ navigation }: any) {
 }
 
 const s = StyleSheet.create({
-  // pushed further down without changing your design
   wrap: { flexGrow: 1, backgroundColor: C.bg, padding: 20, paddingTop: 72 },
   title: { color: C.text, fontSize: 24, textAlign: 'center', textTransform: 'lowercase', fontWeight: '700' },
   sub: { color: C.dim, textAlign: 'center', marginTop: 6, textTransform: 'lowercase' },
@@ -197,13 +219,12 @@ const s = StyleSheet.create({
   chipTxt: { color: C.text, textTransform: 'lowercase' },
   chipTxtOn: { color: C.text, fontWeight: '700' },
 
-  // smaller city box on the form
   picker: {
     backgroundColor: 'rgba(240,228,193,0.08)',
     borderRadius: 12,
     paddingHorizontal: 12,
-    paddingVertical: 10,   // compact
-    minHeight: 44,         // compact height
+    paddingVertical: 10,
+    minHeight: 44,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.06)',
   },
@@ -223,7 +244,6 @@ const s = StyleSheet.create({
   primary: { backgroundColor: C.accent, borderRadius: 14, paddingVertical: 14, alignItems: 'center', marginTop: 18 },
   primaryText: { color: C.text, fontSize: 16, fontWeight: '700', textTransform: 'lowercase' },
 
-  // compact bottom-sheet
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' },
   modalCard: {
     width: '100%',
@@ -235,7 +255,6 @@ const s = StyleSheet.create({
   },
   modalTitle: { color: C.text, fontSize: 16, fontWeight: '700', textTransform: 'lowercase', textAlign: 'center', marginBottom: 6 },
 
-  // centered city names
   cityItem: {
     paddingVertical: 10,
     borderBottomWidth: 1,

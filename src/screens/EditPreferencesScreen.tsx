@@ -1,5 +1,5 @@
 // src/screens/EditPreferencesScreen.tsx
-import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import {
   StyleSheet,
   Text,
@@ -14,7 +14,6 @@ import {
   Platform,
   Modal,
   Dimensions,
-  FlatList,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { useNavigation } from '@react-navigation/native';
@@ -32,31 +31,25 @@ export default function EditPreferencesScreen() {
   const navigation = useNavigation();
   const starFontFamily = Platform.select({ ios: 'System', android: 'sans-serif' });
 
-  // ----- wizard -----
   const steps: StepKey[] = ['favorites', 'recent', 'genres'];
   const [stepIndex, setStepIndex] = useState(0);
-  const listRef = useRef<FlatList<StepKey>>(null);
+  const scrollRef = useRef<ScrollView>(null);
 
-  // ----- loading / saving -----
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
-  // ----- data -----
   const [favorites, setFavorites] = useState<FavoriteMovie[]>([]);
   const [recentWatches, setRecentWatches] = useState<RecentWatch[]>([]);
   const [genreRatings, setGenreRatings] = useState<GenreRating[]>([]);
 
-  // shared search state (for favorites + recent)
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<Movie[]>([]);
   const [searching, setSearching] = useState(false);
 
-  // modal for rating when adding to recent
   const [showRatingModal, setShowRatingModal] = useState(false);
   const [movieToRate, setMovieToRate] = useState<Movie | null>(null);
   const [tempRating, setTempRating] = useState(0);
 
-  // poster sets for the genre cards (kept verbose to preserve layout feel)
   const posterSets: Record<string, { title: string; year: string; uri: string }[]> = {
     action: [
       { title: 'mad max: fury road', year: '(2015)', uri: 'https://image.tmdb.org/t/p/w185/8tZYtuWezp8JbcsvHYO0O46tFbo.jpg' },
@@ -75,12 +68,10 @@ export default function EditPreferencesScreen() {
     ],
   };
 
-  // ----- effects -----
   useEffect(() => {
     loadUserData();
   }, []);
 
-  // debounced search (kept identical behavior, just stable)
   useEffect(() => {
     const t = setTimeout(async () => {
       if (searchQuery.trim().length < 2) {
@@ -100,7 +91,6 @@ export default function EditPreferencesScreen() {
     return () => clearTimeout(t);
   }, [searchQuery]);
 
-  // ----- data io -----
   const loadUserData = async () => {
     try {
       const currentUser = FirebaseAuthService.getCurrentUser();
@@ -144,14 +134,13 @@ export default function EditPreferencesScreen() {
     }
   };
 
-  // ----- wizard nav -----
   const goNext = useCallback(() => {
     if (stepIndex < steps.length - 1) {
       const next = stepIndex + 1;
       setStepIndex(next);
-      listRef.current?.scrollToIndex({ index: next, animated: true });
+      scrollRef.current?.scrollTo({ x: width * next, animated: true });
     } else {
-      saveChanges(); // finish
+      saveChanges();
     }
   }, [stepIndex, steps.length]);
 
@@ -159,13 +148,12 @@ export default function EditPreferencesScreen() {
     if (stepIndex > 0) {
       const prev = stepIndex - 1;
       setStepIndex(prev);
-      listRef.current?.scrollToIndex({ index: prev, animated: true });
+      scrollRef.current?.scrollTo({ x: width * prev, animated: true });
     } else {
       navigation.goBack();
     }
   }, [stepIndex, navigation]);
 
-  // ----- favorites -----
   const addFavorite = (movie: Movie) => {
     if (favorites.length >= 4) {
       return Alert.alert('limit reached', 'you can only have 4 favorite movies');
@@ -182,7 +170,6 @@ export default function EditPreferencesScreen() {
 
   const removeFavorite = (id: string) => setFavorites((prev) => prev.filter((f) => f.id !== id));
 
-  // ----- recent watches -----
   const addRecentWatch = (movie: Movie) => {
     if (recentWatches.length >= 10) {
       return Alert.alert('limit reached', 'you can only have 10 recent watches');
@@ -219,7 +206,6 @@ export default function EditPreferencesScreen() {
   const updateRecentRating = (id: string, rating: number) =>
     setRecentWatches((prev) => prev.map((w) => (w.id === id ? { ...w, rating } : w)));
 
-  // ----- genre ratings -----
   const updateGenreRating = (genre: string, rating: number) => {
     setGenreRatings((prev) => {
       const existing = prev.find((g) => g.genre === genre);
@@ -228,204 +214,19 @@ export default function EditPreferencesScreen() {
     });
   };
 
-  // ----- steps (components defined once) -----
-  const FavoritesStep = () => (
-    <View style={s.step}>
-      <Text style={s.sectionTitle}>favorite movies ({favorites.length}/4)</Text>
-
-      <View style={s.searchContainer}>
-        <TextInput
-          style={s.searchInput}
-          value={searchQuery}
-          onChangeText={setSearchQuery}
-          placeholder="search for movies to add…"
-          placeholderTextColor="rgba(240, 228, 193, 0.5)"
-          autoCorrect={false}
-          autoCapitalize="none"
-          returnKeyType="search"
-          blurOnSubmit={false}
-          keyboardAppearance="dark"
-        />
-        {searching && <ActivityIndicator style={s.searchIndicator} color={C.text} />}
-      </View>
-
-      {searchResults.length > 0 && (
-        <ScrollView style={s.searchResults} keyboardShouldPersistTaps="handled">
-          {searchResults.map((movie) => (
-            <TouchableOpacity key={movie.id} style={s.searchResultItem} onPress={() => addFavorite(movie)}>
-              {movie.poster_path ? (
-                <Image source={{ uri: `https://image.tmdb.org/t/p/w92${movie.poster_path}` }} style={s.posterThumb} />
-              ) : (
-                <View style={[s.posterThumb, s.posterPlaceholder]}>
-                  <Text style={s.posterPlaceholderText}>no{'\n'}image</Text>
-                </View>
-              )}
-              <View style={s.movieInfo}>
-                <Text style={s.movieTitle}>{movie.title}</Text>
-                <Text style={s.movieYear}>{movie.year ?? '—'}</Text>
-              </View>
-              <Text style={s.addButton}>+</Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
-      )}
-
-      <View style={s.currentItems}>
-        {favorites.map((m) => (
-          <View key={m.id} style={s.currentItem}>
-            <View style={s.movieInfo}>
-              <Text style={s.currentItemTitle}>{m.title}</Text>
-              <Text style={s.currentItemYear}>({m.year ?? '—'})</Text>
-            </View>
-            <TouchableOpacity onPress={() => removeFavorite(m.id)}>
-              <Text style={s.removeButton}>×</Text>
-            </TouchableOpacity>
-          </View>
-        ))}
-      </View>
-    </View>
+  // VALIDATION: Block continue unless requirements met
+  const canContinueFavorites = favorites.length >= 4;
+  const canContinueRecents = recentWatches.length >= 4;
+  
+  const allGenres = ['action', 'horror', 'romance'];
+  const canContinueGenres = allGenres.every(g => 
+    genreRatings.some(rating => rating.genre === g && rating.rating > 0)
   );
 
-  const RecentsStep = () => (
-    <View style={s.step}>
-      <Text style={s.sectionTitle}>recent watches ({recentWatches.length}/10)</Text>
+  const canProceed = stepIndex === 0 ? canContinueFavorites : 
+                     stepIndex === 1 ? canContinueRecents : 
+                     canContinueGenres;
 
-      <View style={s.searchContainer}>
-        <TextInput
-          style={s.searchInput}
-          value={searchQuery}
-          onChangeText={setSearchQuery}
-          placeholder="search for movies to add…"
-          placeholderTextColor="rgba(240, 228, 193, 0.5)"
-          autoCorrect={false}
-          autoCapitalize="none"
-          returnKeyType="search"
-          blurOnSubmit={false}
-          keyboardAppearance="dark"
-        />
-        {searching && <ActivityIndicator style={s.searchIndicator} color={C.text} />}
-      </View>
-
-      {searchResults.length > 0 && (
-        <ScrollView style={s.searchResults} keyboardShouldPersistTaps="handled">
-          {searchResults.map((movie) => (
-            <TouchableOpacity key={movie.id} style={s.searchResultItem} onPress={() => addRecentWatch(movie)}>
-              {movie.poster_path ? (
-                <Image source={{ uri: `https://image.tmdb.org/t/p/w92${movie.poster_path}` }} style={s.posterThumb} />
-              ) : (
-                <View style={[s.posterThumb, s.posterPlaceholder]}>
-                  <Text style={s.posterPlaceholderText}>no{'\n'}image</Text>
-                </View>
-              )}
-              <View style={s.movieInfo}>
-                <Text style={s.movieTitle}>{movie.title}</Text>
-                <Text style={s.movieYear}>{movie.year ?? '—'}</Text>
-              </View>
-              <Text style={s.addButton}>+</Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
-      )}
-
-      <View style={s.currentItems}>
-        {recentWatches.map((movie) => (
-          <View key={movie.id} style={s.recentItem}>
-            <View style={s.movieHeader}>
-              <View style={s.movieInfo}>
-                <Text style={s.currentItemTitle}>{movie.title}</Text>
-                <Text style={s.currentItemYear}>({movie.year ?? '—'})</Text>
-              </View>
-              <TouchableOpacity onPress={() => removeRecentWatch(movie.id)}>
-                <Text style={s.removeButton}>×</Text>
-              </TouchableOpacity>
-            </View>
-            <View style={s.starsRow}>
-              {[1, 2, 3, 4, 5].map((star) => (
-                <TouchableOpacity key={star} onPress={() => updateRecentRating(movie.id, star)} style={s.starButton}>
-                  <Text
-                    style={[
-                      s.starText,
-                      { fontFamily: starFontFamily },
-                      movie.rating >= star ? s.starFilled : s.starEmpty,
-                    ]}
-                  >
-                    ★
-                  </Text>
-                </TouchableOpacity>
-              ))}
-              <Text style={s.numericRating}>{movie.rating}/5</Text>
-            </View>
-          </View>
-        ))}
-      </View>
-    </View>
-  );
-
-  const GenresStep = () => {
-    const cards = [
-      { key: 'action', title: 'action', question: 'how do you feel about action?' },
-      { key: 'horror', title: 'horror', question: 'how do you feel about horror?' },
-      { key: 'romance', title: 'romance', question: 'how do you feel about romance?' },
-    ] as const;
-
-    const getRating = (g: string) => genreRatings.find((x) => x.genre === g)?.rating || 0;
-
-    return (
-      <View style={s.step}>
-        <Text style={s.bigTitle}>rate these genres</Text>
-        <Text style={s.subtitle}>how do you feel about these genres?</Text>
-
-        <View style={s.heroDots}>
-          <View style={[s.dot, s.dotActive]} />
-          <View style={s.dot} />
-          <View style={s.dot} />
-        </View>
-
-        {cards.map((c, idx) => (
-          <View key={c.key} style={[s.card, { marginTop: idx === 0 ? 24 : 18 }]}>
-            <Text style={s.cardTitle}>{c.title}</Text>
-
-            <View style={s.postersRow}>
-              {posterSets[c.key].map((p, i) => (
-                <View key={i} style={s.posterCell}>
-                  <Image source={{ uri: p.uri }} style={s.posterBig} />
-                  <Text numberOfLines={1} style={s.posterCaption}>{p.title}</Text>
-                  <Text style={s.posterYear}>{p.year}</Text>
-                </View>
-              ))}
-            </View>
-
-            <Text style={s.cardQuestion}>{c.question}</Text>
-
-            <View style={s.starsRow}>
-              {[1, 2, 3, 4, 5].map((star) => (
-                <TouchableOpacity key={star} onPress={() => updateGenreRating(c.title, star)} style={s.starButton}>
-                  <Text
-                    style={[
-                      s.starText,
-                      { fontFamily: starFontFamily },
-                      getRating(c.title) >= star ? s.starRed : s.starGrey,
-                    ]}
-                  >
-                    ★
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          </View>
-        ))}
-
-        <Text style={s.footerHint}>rate {Math.max(0, 4 - cards.length)} more genres</Text>
-      </View>
-    );
-  };
-
-  // ----- memoized nodes: prevents remount on keystrokes -----
-  const favoritesNode = useMemo(() => <FavoritesStep />, [favorites, searchResults, searching]);
-  const recentsNode   = useMemo(() => <RecentsStep />,   [recentWatches, searchResults, searching]);
-  const genresNode    = useMemo(() => <GenresStep />,    [genreRatings]);
-
-  // ----- render -----
   if (loading) {
     return (
       <SafeAreaView style={s.container}>
@@ -442,7 +243,6 @@ export default function EditPreferencesScreen() {
     <SafeAreaView style={s.container}>
       <StatusBar style="light" />
 
-      {/* header */}
       <View style={s.header}>
         <TouchableOpacity onPress={goBack} style={s.backButton}>
           <Text style={s.backText}>← back</Text>
@@ -453,36 +253,228 @@ export default function EditPreferencesScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* progress dots */}
       <View style={s.dots}>
         {steps.map((_, i) => (
           <View key={i} style={[s.dot, i === stepIndex && s.dotActive]} />
         ))}
       </View>
 
-      {/* wizard body */}
-      <FlatList
-        ref={listRef}
-        data={steps}
-        keyExtractor={(k) => k}
-        renderItem={({ item }) => (item === 'favorites' ? favoritesNode : item === 'recent' ? recentsNode : genresNode)}
+      <ScrollView
+        ref={scrollRef}
         horizontal
         pagingEnabled
         scrollEnabled={false}
         showsHorizontalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
-        getItemLayout={(_, i) => ({ length: width, offset: width * i, index: i })}
-        // NOTE: no extraData — prevents remount during typing
-      />
+        scrollEventThrottle={16}
+      >
+        {/* FAVORITES STEP */}
+        <View style={s.step}>
+          <Text style={s.sectionTitle}>favorite movies ({favorites.length}/4)</Text>
 
-      {/* footer / next */}
+          <View style={s.searchContainer}>
+            <TextInput
+              style={s.searchInput}
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+              placeholder="search for movies to add…"
+              placeholderTextColor="rgba(240, 228, 193, 0.5)"
+              autoCorrect={false}
+              autoCapitalize="none"
+              returnKeyType="search"
+              keyboardAppearance="dark"
+            />
+            {searching && <ActivityIndicator style={s.searchIndicator} color={C.text} />}
+          </View>
+
+          {searchResults.length > 0 && (
+            <ScrollView style={s.searchResults} keyboardShouldPersistTaps="handled">
+              {searchResults.map((movie) => (
+                <TouchableOpacity key={movie.id} style={s.searchResultItem} onPress={() => addFavorite(movie)}>
+                  {movie.poster_path ? (
+                    <Image source={{ uri: `https://image.tmdb.org/t/p/w92${movie.poster_path}` }} style={s.posterThumb} />
+                  ) : (
+                    <View style={[s.posterThumb, s.posterPlaceholder]}>
+                      <Text style={s.posterPlaceholderText}>no{'\n'}image</Text>
+                    </View>
+                  )}
+                  <View style={s.movieInfo}>
+                    <Text style={s.movieTitle}>{movie.title}</Text>
+                    <Text style={s.movieYear}>{movie.year ?? '—'}</Text>
+                  </View>
+                  <Text style={s.addButton}>+</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          )}
+
+          <View style={s.currentItems}>
+            {favorites.map((m) => (
+              <View key={m.id} style={s.currentItem}>
+                <View style={s.movieInfo}>
+                  <Text style={s.currentItemTitle}>{m.title}</Text>
+                  <Text style={s.currentItemYear}>({m.year ?? '—'})</Text>
+                </View>
+                <TouchableOpacity onPress={() => removeFavorite(m.id)}>
+                  <Text style={s.removeButton}>×</Text>
+                </TouchableOpacity>
+              </View>
+            ))}
+          </View>
+
+          {!canContinueFavorites && (
+            <Text style={s.requirementText}>you need to add {4 - favorites.length} more favorite(s)</Text>
+          )}
+        </View>
+
+        {/* RECENTS STEP */}
+        <View style={s.step}>
+          <Text style={s.sectionTitle}>recent watches ({recentWatches.length}/10)</Text>
+
+          <View style={s.searchContainer}>
+            <TextInput
+              style={s.searchInput}
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+              placeholder="search for movies to add…"
+              placeholderTextColor="rgba(240, 228, 193, 0.5)"
+              autoCorrect={false}
+              autoCapitalize="none"
+              returnKeyType="search"
+              keyboardAppearance="dark"
+            />
+            {searching && <ActivityIndicator style={s.searchIndicator} color={C.text} />}
+          </View>
+
+          {searchResults.length > 0 && (
+            <ScrollView style={s.searchResults} keyboardShouldPersistTaps="handled">
+              {searchResults.map((movie) => (
+                <TouchableOpacity key={movie.id} style={s.searchResultItem} onPress={() => addRecentWatch(movie)}>
+                  {movie.poster_path ? (
+                    <Image source={{ uri: `https://image.tmdb.org/t/p/w92${movie.poster_path}` }} style={s.posterThumb} />
+                  ) : (
+                    <View style={[s.posterThumb, s.posterPlaceholder]}>
+                      <Text style={s.posterPlaceholderText}>no{'\n'}image</Text>
+                    </View>
+                  )}
+                  <View style={s.movieInfo}>
+                    <Text style={s.movieTitle}>{movie.title}</Text>
+                    <Text style={s.movieYear}>{movie.year ?? '—'}</Text>
+                  </View>
+                  <Text style={s.addButton}>+</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          )}
+
+          <View style={s.currentItems}>
+            {recentWatches.map((movie) => (
+              <View key={movie.id} style={s.recentItem}>
+                <View style={s.movieHeader}>
+                  <View style={s.movieInfo}>
+                    <Text style={s.currentItemTitle}>{movie.title}</Text>
+                    <Text style={s.currentItemYear}>({movie.year ?? '—'})</Text>
+                  </View>
+                  <TouchableOpacity onPress={() => removeRecentWatch(movie.id)}>
+                    <Text style={s.removeButton}>×</Text>
+                  </TouchableOpacity>
+                </View>
+                <View style={s.starsRow}>
+                  {[1, 2, 3, 4, 5].map((star) => (
+                    <TouchableOpacity key={star} onPress={() => updateRecentRating(movie.id, star)} style={s.starButton}>
+                      <Text
+                        style={[
+                          s.starText,
+                          { fontFamily: starFontFamily },
+                          movie.rating >= star ? s.starFilled : s.starEmpty,
+                        ]}
+                      >
+                        ★
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                  <Text style={s.numericRating}>{movie.rating}/5</Text>
+                </View>
+              </View>
+            ))}
+          </View>
+
+          {!canContinueRecents && (
+            <Text style={s.requirementText}>you need to add {4 - recentWatches.length} more recent watch(es)</Text>
+          )}
+        </View>
+
+        {/* GENRES STEP */}
+        <View style={s.step}>
+          <Text style={s.bigTitle}>rate these genres</Text>
+          <Text style={s.subtitle}>how do you feel about these genres?</Text>
+
+          <View style={s.heroDots}>
+            <View style={[s.dot, s.dotActive]} />
+            <View style={s.dot} />
+            <View style={s.dot} />
+          </View>
+
+          {[
+            { key: 'action', title: 'action', question: 'how do you feel about action?' },
+            { key: 'horror', title: 'horror', question: 'how do you feel about horror?' },
+            { key: 'romance', title: 'romance', question: 'how do you feel about romance?' },
+          ].map((c, idx) => {
+            const getRating = (g: string) => genreRatings.find((x) => x.genre === g)?.rating || 0;
+            
+            return (
+              <View key={c.key} style={[s.card, { marginTop: idx === 0 ? 24 : 18 }]}>
+                <Text style={s.cardTitle}>{c.title}</Text>
+
+                <View style={s.postersRow}>
+                  {posterSets[c.key].map((p, i) => (
+                    <View key={i} style={s.posterCell}>
+                      <Image source={{ uri: p.uri }} style={s.posterBig} />
+                      <Text numberOfLines={1} style={s.posterCaption}>{p.title}</Text>
+                      <Text style={s.posterYear}>{p.year}</Text>
+                    </View>
+                  ))}
+                </View>
+
+                <Text style={s.cardQuestion}>{c.question}</Text>
+
+                <View style={s.starsRow}>
+                  {[1, 2, 3, 4, 5].map((star) => (
+                    <TouchableOpacity key={star} onPress={() => updateGenreRating(c.title, star)} style={s.starButton}>
+                      <Text
+                        style={[
+                          s.starText,
+                          { fontFamily: starFontFamily },
+                          getRating(c.title) >= star ? s.starFilled : s.starEmpty,
+                        ]}
+                      >
+                        ★
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+            );
+          })}
+
+          {!canContinueGenres && (
+            <Text style={s.requirementText}>please rate all genres to continue</Text>
+          )}
+        </View>
+      </ScrollView>
+
       <View style={s.footer}>
-        <TouchableOpacity style={s.nextBtn} onPress={goNext}>
-          <Text style={s.nextTxt}>{stepIndex < steps.length - 1 ? 'next' : 'finish'}</Text>
+        <TouchableOpacity 
+          style={[s.nextBtn, !canProceed && s.nextBtnDisabled]} 
+          onPress={goNext}
+          disabled={!canProceed}
+        >
+          <Text style={[s.nextTxt, !canProceed && s.nextTxtDisabled]}>
+            {stepIndex < steps.length - 1 ? 'next' : 'finish'}
+          </Text>
         </TouchableOpacity>
       </View>
 
-      {/* rating modal */}
       <Modal visible={showRatingModal} transparent animationType="fade">
         <View style={s.modalOverlay}>
           <View style={s.modalContent}>
@@ -533,7 +525,6 @@ export default function EditPreferencesScreen() {
   );
 }
 
-// ----- styles -----
 const s = StyleSheet.create({
   container: { flex: 1, backgroundColor: C.bg },
 
@@ -608,30 +599,29 @@ const s = StyleSheet.create({
   starsRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
   starButton: { padding: 2 },
   starText: { fontSize: 20, fontWeight: 'bold', marginHorizontal: 2 },
-  starFilled: { color: C.text },
+  starFilled: { color: C.accent },
   starEmpty: { color: 'rgba(240, 228, 193, 0.3)' },
-  starRed: { color: '#8b1e1e' },
-  starGrey: { color: 'rgba(240, 228, 193, 0.3)' },
   numericRating: { color: C.text, fontSize: 14, marginLeft: 8, opacity: 0.8 },
 
-  // genre cards
-  card: { backgroundColor: C.card, borderRadius: 28, paddingVertical: 16, paddingHorizontal: 14, borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)' },
-  cardTitle: { color: C.text, textAlign: 'center', fontSize: 22, marginTop: 4, marginBottom: 8, textTransform: 'lowercase' },
-  postersRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 8 },
-  posterCell: { width: (width - 20 * 2 - 14 * 2) / 3 - 6, alignItems: 'center' },
-  posterBig: { width: '100%', aspectRatio: 2 / 3, borderRadius: 12 },
-  posterCaption: { color: C.text, fontSize: 12, marginTop: 6, textAlign: 'center', textTransform: 'lowercase' },
-  posterYear: { color: C.dim, fontSize: 11, marginTop: 2, textAlign: 'center' },
-  cardQuestion: { color: C.dim, textAlign: 'center', marginTop: 12, marginBottom: 6, textTransform: 'lowercase' },
+  card: { backgroundColor: C.card, borderRadius: 20, paddingVertical: 16, paddingHorizontal: 14, borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)' },
+  cardTitle: { color: C.text, textAlign: 'center', fontSize: 20, marginTop: 4, marginBottom: 12, textTransform: 'lowercase', fontWeight: '700' },
+  postersRow: { flexDirection: 'row', justifyContent: 'space-around', marginTop: 8, paddingHorizontal: 8 },
+  posterCell: { width: 80, alignItems: 'center' },
+  posterBig: { width: 80, height: 120, borderRadius: 8 },
+  posterCaption: { color: C.text, fontSize: 11, marginTop: 6, textAlign: 'center', textTransform: 'lowercase' },
+  posterYear: { color: C.dim, fontSize: 10, marginTop: 2, textAlign: 'center' },
+  cardQuestion: { color: C.dim, textAlign: 'center', marginTop: 12, marginBottom: 8, textTransform: 'lowercase' },
 
   heroDots: { flexDirection: 'row', justifyContent: 'center', marginTop: 8 },
-  footerHint: { color: C.dim, textAlign: 'center', marginTop: 14, textTransform: 'lowercase' },
+
+  requirementText: { color: C.accent, textAlign: 'center', marginTop: 16, fontSize: 14, textTransform: 'lowercase' },
 
   footer: { padding: 16 },
-  nextBtn: { backgroundColor: C.card, borderRadius: 14, paddingVertical: 14, alignItems: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)' },
-  nextTxt: { color: C.text, fontSize: 16, textTransform: 'lowercase', letterSpacing: 1 },
+  nextBtn: { backgroundColor: C.accent, borderRadius: 14, paddingVertical: 14, alignItems: 'center' },
+  nextBtnDisabled: { backgroundColor: 'rgba(81, 22, 25, 0.4)' },
+  nextTxt: { color: C.text, fontSize: 16, textTransform: 'lowercase', letterSpacing: 1, fontWeight: '600' },
+  nextTxtDisabled: { opacity: 0.5 },
 
-  // modal
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', justifyContent: 'center', alignItems: 'center', paddingHorizontal: 20 },
   modalContent: { backgroundColor: '#1A2B3D', borderRadius: 20, padding: 24, width: '100%', maxWidth: 400, alignItems: 'center' },
   modalTitle: { fontSize: 18, fontWeight: 'bold', color: C.text, marginBottom: 8 },

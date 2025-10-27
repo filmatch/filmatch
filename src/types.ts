@@ -18,17 +18,17 @@ export type GenreRating = {
 };
 
 export type UserProfile = {
-  pronouns(pronouns: any): unknown;
   uid: string;
   email?: string;
   displayName?: string;
 
-  // NEW fields for setup
-age?: number;           // 18–100
-city?: string;
-gender?: string;        // "female" | "male" | "nonbinary" | "prefer not to say"
-bio?: string;           // <= 160
-photos?: string[];      // storage URLs (optional)
+  // Profile fields
+  age?: number;           // 18–100
+  city?: string;
+  gender?: string;        // "female" | "male" | "nonbinary" | "other"
+  genderPreferences?: string[]; // ["female", "male", "nonbinary", "other"] - can select multiple
+  bio?: string;           // <= 160
+  photos?: string[];      // storage URLs (optional)
 
   // Preferences
   favorites?: FavoriteMovie[];
