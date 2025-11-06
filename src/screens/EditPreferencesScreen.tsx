@@ -312,9 +312,7 @@ export default function EditPreferencesScreen() {
           <Text style={s.backText}>← back</Text>
         </TouchableOpacity>
         <Text style={s.headerTitle}>edit preferences</Text>
-        <TouchableOpacity onPress={saveChanges} style={[s.saveButton, saving && s.saveButtonDisabled]} disabled={saving}>
-          {saving ? <ActivityIndicator size="small" color={C.text} /> : <Text style={s.saveText}>save</Text>}
-        </TouchableOpacity>
+        <View style={{ width: 60 }} />
       </View>
 
       <View style={s.dots}>
@@ -529,13 +527,17 @@ export default function EditPreferencesScreen() {
 
       <View style={s.footer}>
         <TouchableOpacity 
-          style={[s.nextBtn, !canProceed && s.nextBtnDisabled]} 
+          style={[s.nextBtn, (!canProceed || saving) && s.nextBtnDisabled]} 
           onPress={goNext}
-          disabled={!canProceed}
+          disabled={!canProceed || saving}
         >
-          <Text style={[s.nextTxt, !canProceed && s.nextTxtDisabled]}>
-            {stepIndex < steps.length - 1 ? 'next' : 'finish'}
-          </Text>
+          {saving ? (
+            <ActivityIndicator size="small" color={C.text} />
+          ) : (
+            <Text style={[s.nextTxt, !canProceed && s.nextTxtDisabled]}>
+              {stepIndex < steps.length - 1 ? 'next' : 'finish'}
+            </Text>
+          )}
         </TouchableOpacity>
       </View>
 
@@ -607,9 +609,6 @@ const s = StyleSheet.create({
   backButton: { padding: 4 },
   backText: { color: C.text, fontSize: 16 },
   headerTitle: { color: C.text, fontSize: 18, fontWeight: 'bold', textTransform: 'lowercase' },
-  saveButton: { backgroundColor: C.accent, paddingHorizontal: 16, paddingVertical: 8, borderRadius: 8, minWidth: 60, alignItems: 'center' },
-  saveButtonDisabled: { opacity: 0.6 },
-  saveText: { color: C.text, fontSize: 16, fontWeight: '600', textTransform: 'lowercase' },
 
   dots: { flexDirection: 'row', justifyContent: 'center', paddingTop: 6 },
   dot: { width: 6, height: 6, borderRadius: 3, backgroundColor: 'rgba(240, 228, 193, 0.25)', marginHorizontal: 3 },
@@ -681,8 +680,8 @@ const s = StyleSheet.create({
   cardTitle: { color: C.text, textAlign: 'center', fontSize: 20, textTransform: 'lowercase', fontWeight: '700' },
   requiredBadge: { backgroundColor: C.accent, color: C.text, fontSize: 10, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, textTransform: 'lowercase', fontWeight: '700' },
   postersRow: { flexDirection: 'row', justifyContent: 'space-around', marginTop: 8, paddingHorizontal: 8 },
-  posterCell: { width: 80, alignItems: 'center' },
-  posterBig: { width: 80, height: 120, borderRadius: 8 },
+  posterCell: { width: 70, alignItems: 'center' },
+  posterBig: { width: 70, height: 105, borderRadius: 8 },
   posterCaption: { color: C.text, fontSize: 11, marginTop: 6, textAlign: 'center', textTransform: 'lowercase' },
   posterYear: { color: C.dim, fontSize: 10, marginTop: 2, textAlign: 'center' },
   cardQuestion: { color: C.dim, textAlign: 'center', marginTop: 12, marginBottom: 8, textTransform: 'lowercase' },
