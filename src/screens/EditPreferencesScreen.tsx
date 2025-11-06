@@ -157,8 +157,7 @@ const genreList = [
     }
   };
 
- const saveChanges = async () => {
-  // Validate all requirements before saving
+const saveChanges = async () => {
   if (!canContinueFavorites) {
     return Alert.alert('incomplete', `you need to add ${4 - favorites.length} more favorite(s)`);
   }
@@ -180,7 +179,7 @@ const genreList = [
       genreRatings,
     });
 
-    await FirestoreService.updateUserProfile(currentUser.uid, { hasPreferences: true });
+     await FirestoreService.updateUserProfile(currentUser.uid, { hasPreferences: true });
 
     Alert.alert('saved', 'your preferences have been updated!', [
       { text: 'ok', onPress: () => navigation.goBack() },
@@ -265,13 +264,20 @@ const genreList = [
   const updateRecentRating = (id: string, rating: number) =>
     setRecentWatches((prev) => prev.map((w) => (w.id === id ? { ...w, rating } : w)));
 
-  const updateGenreRating = (genre: string, rating: number) => {
-    setGenreRatings((prev) => {
-      const existing = prev.find((g) => g.genre === genre);
-      if (existing) return prev.map((g) => (g.genre === genre ? { ...g, rating } : g));
+const updateGenreRating = (genre: string, rating: number) => {
+  setGenreRatings((prev) => {
+    const existing = prev.find((g) => g.genre === genre);
+    if (existing) {
+      // Update the rating if it exists
+      return prev.map((g) =>
+        g.genre === genre ? { ...g, rating } : g
+      );
+    } else {
+      // Otherwise, add a new rating entry
       return [...prev, { genre, rating }];
-    });
-  };
+    }
+  });
+};
 
   const getGenreRating = (genre: string): number => {
     return genreRatings.find((g) => g.genre === genre)?.rating || 0;
@@ -285,8 +291,8 @@ const genreList = [
 const mandatoryGenres = ['action', 'romance', 'drama', 'animation'];
 
 // Update genre validation logic for saving preferences
-const canContinueGenres = mandatoryGenres.every(g => 
-  genreRatings.some(rating => rating.genre === g && rating.rating > 0)
+const canContinueGenres = mandatoryGenres.every((genre) =>
+  genreRatings.some((rating) => rating.genre === genre && rating.rating > 0)
 );
   const canProceed = stepIndex === 0 ? canContinueFavorites : 
                      stepIndex === 1 ? canContinueRecents : 
