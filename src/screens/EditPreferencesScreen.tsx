@@ -282,11 +282,12 @@ export default function EditPreferencesScreen() {
   const canContinueRecents = recentWatches.length >= 4;
   
   // Only require 4 mandatory genres to be rated
-  const mandatoryGenres = ['action', 'horror', 'romance', 'comedy'];
-  const canContinueGenres = mandatoryGenres.every(g => 
-    genreRatings.some(rating => rating.genre === g && rating.rating > 0)
-  );
+const mandatoryGenres = ['action', 'romance', 'drama', 'animation'];
 
+// Update genre validation logic for saving preferences
+const canContinueGenres = mandatoryGenres.every(g => 
+  genreRatings.some(rating => rating.genre === g && rating.rating > 0)
+);
   const canProceed = stepIndex === 0 ? canContinueFavorites : 
                      stepIndex === 1 ? canContinueRecents : 
                      canContinueGenres;
