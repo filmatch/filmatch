@@ -17,7 +17,7 @@ export default function OnboardingScreen({ onComplete }: Props) {
 
     (async () => {
       const u = FirebaseAuthService.getCurrentUser();
-      if (!u) { if (!cancelled) setNote('no user — please sign in'); return; }
+      if (!u) { if (!cancelled) setNote('no user – please sign in'); return; }
 
       try {
         const profile: any = await FirestoreService.getUserProfile(u.uid);
@@ -44,14 +44,15 @@ export default function OnboardingScreen({ onComplete }: Props) {
         // SIGN-UP path: mount app, then push into the correct step
         onComplete();
         setTimeout(() => {
+          if (cancelled) return;
           if (!hasProfile) {
-            // We'll add this screen in Step 2 (below)
             navigateNested('MainApp', 'SetUpProfile');
           } else if (!hasPreferences) {
             navigateNested('MainApp', 'EditPreferences');
           }
-        }, 0);
-      } catch {
+        }, 300); // Increased from 0 to 300ms to allow navigator to mount
+      } catch (err) {
+        console.error('Onboarding error:', err);
         onComplete(); // fail-open so the user is not stuck
       }
     })();
@@ -59,7 +60,6 @@ export default function OnboardingScreen({ onComplete }: Props) {
     return () => { cancelled = true; };
   }, [onComplete]);
 
-  // Keep loader up until navigation occurs — removes the brief flicker
   return (
     <View style={s.container}>
       <ActivityIndicator size="large" color={C.text} />
