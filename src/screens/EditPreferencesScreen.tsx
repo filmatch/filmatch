@@ -103,18 +103,18 @@ export default function EditPreferencesScreen() {
     ],
   };
 
-  const genreList = [
-    { key: 'action', label: 'action', required: true },
-    { key: 'horror', label: 'horror', required: true },
-    { key: 'romance', label: 'romance', required: true },
-    { key: 'comedy', label: 'comedy', required: true },
-    { key: 'thriller', label: 'thriller', required: false },
-    { key: 'drama', label: 'drama', required: false },
-    { key: 'scifi', label: 'sci-fi', required: false },
-    { key: 'fantasy', label: 'fantasy', required: false },
-    { key: 'animation', label: 'animation', required: false },
-    { key: 'documentary', label: 'documentary', required: false },
-  ];
+const genreList = [
+  { key: 'action', label: 'action', required: true },
+  { key: 'romance', label: 'romance', required: true },
+  { key: 'drama', label: 'drama', required: true },
+  { key: 'animation', label: 'animation', required: true },
+  { key: 'horror', label: 'horror', required: false },
+  { key: 'comedy', label: 'comedy', required: false },
+  { key: 'thriller', label: 'thriller', required: false },
+  { key: 'scifi', label: 'sci-fi', required: false },
+  { key: 'fantasy', label: 'fantasy', required: false },
+  { key: 'documentary', label: 'documentary', required: false },
+];
 
   useEffect(() => {
     loadUserData();
@@ -157,41 +157,41 @@ export default function EditPreferencesScreen() {
     }
   };
 
-  const saveChanges = async () => {
-    // Validate all requirements before saving
-    if (!canContinueFavorites) {
-      return Alert.alert('incomplete', `you need to add ${4 - favorites.length} more favorite(s)`);
-    }
-    if (!canContinueRecents) {
-      return Alert.alert('incomplete', `you need to add ${4 - recentWatches.length} more recent watch(es)`);
-    }
-    if (!canContinueGenres) {
-      return Alert.alert('incomplete', 'please rate all required genres before saving');
-    }
+ const saveChanges = async () => {
+  // Validate all requirements before saving
+  if (!canContinueFavorites) {
+    return Alert.alert('incomplete', `you need to add ${4 - favorites.length} more favorite(s)`);
+  }
+  if (!canContinueRecents) {
+    return Alert.alert('incomplete', `you need to add ${4 - recentWatches.length} more recent watch(es)`);
+  }
+  if (!canContinueGenres) {
+    return Alert.alert('incomplete', 'please rate all required genres (action, romance, drama, animation) before saving');
+  }
 
-    try {
-      setSaving(true);
-      const currentUser = FirebaseAuthService.getCurrentUser();
-      if (!currentUser) return;
+  try {
+    setSaving(true);
+    const currentUser = FirebaseAuthService.getCurrentUser();
+    if (!currentUser) return;
 
-      await FirestoreService.saveUserProfile(currentUser.uid, {
-        favorites,
-        recentWatches,
-        genreRatings,
-      });
+    await FirestoreService.saveUserProfile(currentUser.uid, {
+      favorites,
+      recentWatches,
+      genreRatings,
+    });
 
-      await FirestoreService.updateUserProfile(currentUser.uid, { hasPreferences: true });
+    await FirestoreService.updateUserProfile(currentUser.uid, { hasPreferences: true });
 
-      Alert.alert('saved', 'your preferences have been updated!', [
-        { text: 'ok', onPress: () => navigation.goBack() },
-      ]);
-    } catch (error) {
-      console.error('error saving preferences:', error);
-      Alert.alert('error', 'failed to save your preferences. please try again.');
-    } finally {
-      setSaving(false);
-    }
-  };
+    Alert.alert('saved', 'your preferences have been updated!', [
+      { text: 'ok', onPress: () => navigation.goBack() },
+    ]);
+  } catch (error) {
+    console.error('error saving preferences:', error);
+    Alert.alert('error', 'failed to save your preferences. please try again.');
+  } finally {
+    setSaving(false);
+  }
+};
 
   const goNext = useCallback(() => {
     if (stepIndex < steps.length - 1) {
@@ -469,61 +469,61 @@ const canContinueGenres = mandatoryGenres.every(g =>
 
         {/* GENRES STEP */}
         <View style={s.step}>
-          <Text style={s.bigTitle}>rate these genres</Text>
-          <Text style={s.subtitle}>how do you feel about these genres?</Text>
+  <Text style={s.bigTitle}>rate these genres</Text>
+  <Text style={s.subtitle}>how do you feel about these genres?</Text>
 
-          <ScrollView style={s.genresScrollView} showsVerticalScrollIndicator={false}>
-            {genreList.map((genreItem) => {
-              const posters = posterSets[genreItem.key] || [];
-              const rating = getGenreRating(genreItem.key);
-              
-              return (
-                <View key={genreItem.key} style={s.genreCard}>
-                  <View style={s.cardTitleRow}>
-                    <Text style={s.cardTitle}>{genreItem.label}</Text>
-                    {genreItem.required && <Text style={s.requiredBadge}>required</Text>}
-                  </View>
+  <ScrollView style={s.genresScrollView} showsVerticalScrollIndicator={false}>
+    {genreList.map((genreItem) => {
+      const posters = posterSets[genreItem.key] || [];
+      const rating = getGenreRating(genreItem.key);
 
-                  <View style={s.postersRow}>
-                    {posters.map((poster, idx) => (
-                      <View key={idx} style={s.posterCell}>
-                        <Image source={{ uri: poster.uri }} style={s.posterBig} />
-                        <Text style={s.posterCaption}>{poster.title}</Text>
-                        <Text style={s.posterYear}>{poster.year}</Text>
-                      </View>
-                    ))}
-                  </View>
+      return (
+        <View key={genreItem.key} style={s.genreCard}>
+          <View style={s.cardTitleRow}>
+            <Text style={s.cardTitle}>{genreItem.label}</Text>
+            {genreItem.required && <Text style={s.requiredBadge}>required</Text>}
+          </View>
 
-                  <Text style={s.cardQuestion}>how do you feel about {genreItem.label}?</Text>
+          <View style={s.postersRow}>
+            {posters.map((poster, idx) => (
+              <View key={idx} style={s.posterCell}>
+                <Image source={{ uri: poster.uri }} style={s.posterBig} />
+                <Text style={s.posterCaption}>{poster.title}</Text>
+                <Text style={s.posterYear}>{poster.year}</Text>
+              </View>
+            ))}
+          </View>
 
-                  <View style={s.starsRow}>
-                    {[1, 2, 3, 4, 5].map((star) => (
-                      <TouchableOpacity
-                        key={star}
-                        onPress={() => updateGenreRating(genreItem.key, star)}
-                        style={s.starButton}
-                      >
-                        <Text
-                          style={[
-                            s.genreStarText,
-                            { fontFamily: starFontFamily },
-                            rating >= star ? s.starFilled : s.starEmpty,
-                          ]}
-                        >
-                          ★
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-                </View>
-              );
-            })}
+          <Text style={s.cardQuestion}>how do you feel about {genreItem.label}?</Text>
 
-            {!canContinueGenres && (
-              <Text style={s.requirementText}>please rate all required genres (action, horror, romance, comedy)</Text>
-            )}
-          </ScrollView>
+          <View style={s.starsRow}>
+            {[1, 2, 3, 4, 5].map((star) => (
+              <TouchableOpacity
+                key={star}
+                onPress={() => updateGenreRating(genreItem.key, star)}
+                style={s.starButton}
+              >
+                <Text
+                  style={[
+                    s.genreStarText,
+                    { fontFamily: starFontFamily },
+                    rating >= star ? s.starFilled : s.starEmpty,
+                  ]}
+                >
+                  ★
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
         </View>
+      );
+    })}
+
+    {!canContinueGenres && (
+      <Text style={s.requirementText}>please rate all required genres (action, romance, drama, animation)</Text>
+    )}
+  </ScrollView>
+</View>
       </ScrollView>
 
       <View style={s.footer}>
