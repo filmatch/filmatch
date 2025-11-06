@@ -103,6 +103,19 @@ export default function EditPreferencesScreen() {
     ],
   };
 
+  const genreList = [
+    { key: 'action', label: 'action', required: true },
+    { key: 'horror', label: 'horror', required: true },
+    { key: 'romance', label: 'romance', required: true },
+    { key: 'comedy', label: 'comedy', required: true },
+    { key: 'thriller', label: 'thriller', required: false },
+    { key: 'drama', label: 'drama', required: false },
+    { key: 'scifi', label: 'sci-fi', required: false },
+    { key: 'fantasy', label: 'fantasy', required: false },
+    { key: 'animation', label: 'animation', required: false },
+    { key: 'documentary', label: 'documentary', required: false },
+  ];
+
   useEffect(() => {
     loadUserData();
   }, []);
@@ -258,6 +271,10 @@ export default function EditPreferencesScreen() {
       if (existing) return prev.map((g) => (g.genre === genre ? { ...g, rating } : g));
       return [...prev, { genre, rating }];
     });
+  };
+
+  const getGenreRating = (genre: string): number => {
+    return genreRatings.find((g) => g.genre === genre)?.rating || 0;
   };
 
   // VALIDATION: Block continue unless requirements met
@@ -451,7 +468,63 @@ export default function EditPreferencesScreen() {
           )}
         </View>
 
+        {/* GENRES STEP */}
+        <View style={s.step}>
+          <Text style={s.bigTitle}>rate these genres</Text>
+          <Text style={s.subtitle}>how do you feel about these genres?</Text>
 
+          <ScrollView style={s.genresScrollView} showsVerticalScrollIndicator={false}>
+            {genreList.map((genreItem) => {
+              const posters = posterSets[genreItem.key] || [];
+              const rating = getGenreRating(genreItem.key);
+              
+              return (
+                <View key={genreItem.key} style={s.genreCard}>
+                  <View style={s.cardTitleRow}>
+                    <Text style={s.cardTitle}>{genreItem.label}</Text>
+                    {genreItem.required && <Text style={s.requiredBadge}>required</Text>}
+                  </View>
+
+                  <View style={s.postersRow}>
+                    {posters.map((poster, idx) => (
+                      <View key={idx} style={s.posterCell}>
+                        <Image source={{ uri: poster.uri }} style={s.posterBig} />
+                        <Text style={s.posterCaption}>{poster.title}</Text>
+                        <Text style={s.posterYear}>{poster.year}</Text>
+                      </View>
+                    ))}
+                  </View>
+
+                  <Text style={s.cardQuestion}>how do you feel about {genreItem.label}?</Text>
+
+                  <View style={s.starsRow}>
+                    {[1, 2, 3, 4, 5].map((star) => (
+                      <TouchableOpacity
+                        key={star}
+                        onPress={() => updateGenreRating(genreItem.key, star)}
+                        style={s.starButton}
+                      >
+                        <Text
+                          style={[
+                            s.genreStarText,
+                            { fontFamily: starFontFamily },
+                            rating >= star ? s.starFilled : s.starEmpty,
+                          ]}
+                        >
+                          ★
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </View>
+              );
+            })}
+
+            {!canContinueGenres && (
+              <Text style={s.requirementText}>please rate all required genres (action, horror, romance, comedy)</Text>
+            )}
+          </ScrollView>
+        </View>
       </ScrollView>
 
       <View style={s.footer}>
@@ -545,8 +618,8 @@ const s = StyleSheet.create({
   step: { width, padding: 20 },
 
   sectionTitle: { color: C.text, fontSize: 20, fontWeight: 'bold', marginBottom: 8, textTransform: 'lowercase' },
-  subtitle: { color: C.dim, textAlign: 'center', marginTop: 6, textTransform: 'lowercase' },
-  bigTitle: { color: C.text, fontSize: 26, textAlign: 'center', marginTop: 8, textTransform: 'lowercase' },
+  subtitle: { color: C.dim, textAlign: 'center', marginTop: 6, textTransform: 'lowercase', fontSize: 14 },
+  bigTitle: { color: C.text, fontSize: 26, textAlign: 'center', marginTop: 8, textTransform: 'lowercase', fontWeight: 'bold' },
 
   searchContainer: { marginBottom: 16, position: 'relative' },
   searchInput: {
@@ -594,7 +667,16 @@ const s = StyleSheet.create({
   starEmpty: { color: 'rgba(240, 228, 193, 0.3)' },
   numericRating: { color: C.text, fontSize: 14, marginLeft: 8, opacity: 0.8 },
 
-  card: { backgroundColor: C.card, borderRadius: 20, paddingVertical: 16, paddingHorizontal: 14, borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)' },
+  genresScrollView: { flex: 1, marginTop: 20 },
+  genreCard: { 
+    backgroundColor: C.card, 
+    borderRadius: 20, 
+    paddingVertical: 16, 
+    paddingHorizontal: 14, 
+    borderWidth: 1, 
+    borderColor: 'rgba(255,255,255,0.06)',
+    marginBottom: 16,
+  },
   cardTitleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 4, marginBottom: 12 },
   cardTitle: { color: C.text, textAlign: 'center', fontSize: 20, textTransform: 'lowercase', fontWeight: '700' },
   requiredBadge: { backgroundColor: C.accent, color: C.text, fontSize: 10, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, textTransform: 'lowercase', fontWeight: '700' },
@@ -604,8 +686,7 @@ const s = StyleSheet.create({
   posterCaption: { color: C.text, fontSize: 11, marginTop: 6, textAlign: 'center', textTransform: 'lowercase' },
   posterYear: { color: C.dim, fontSize: 10, marginTop: 2, textAlign: 'center' },
   cardQuestion: { color: C.dim, textAlign: 'center', marginTop: 12, marginBottom: 8, textTransform: 'lowercase' },
-
-  heroDots: { flexDirection: 'row', justifyContent: 'center', marginTop: 8 },
+  genreStarText: { fontSize: 24, fontWeight: 'bold', marginHorizontal: 2 },
 
   requirementText: { color: C.accent, textAlign: 'center', marginTop: 16, fontSize: 14, textTransform: 'lowercase' },
 
