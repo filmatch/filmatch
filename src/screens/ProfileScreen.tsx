@@ -131,9 +131,7 @@ export default function ProfileScreen() {
     navigateNested('MainApp', 'EditPreferences');
   };
 
-  const genderDisplay = userProfile?.gender
-  ? userProfile.gender
-  : '';
+  const genderDisplay = userProfile?.gender ? userProfile.gender : '';
 
   if (loading) {
     return (
@@ -162,7 +160,6 @@ export default function ProfileScreen() {
   }
 
   const totalWatches = (userProfile.recentWatches || []).length;
-  const totalFavorites = (userProfile.favorites || []).length;
   const ratedGenres = (userProfile.genreRatings || []).filter((g) => g.rating > 0).length;
 
   return (
@@ -186,36 +183,25 @@ export default function ProfileScreen() {
               <Text style={styles.displayName}>
                 {(userProfile.displayName || 'movie lover').toLowerCase()}
               </Text>
-              <Text style={styles.userEmail}>{(userProfile.email || '').toLowerCase()}</Text>
 
-              {/* NEW: age · city · pronouns */}
-              {(userProfile.age || userProfile.city || genderDisplay) ? (
+              {/* Age · City · Gender */}
+              {(userProfile.age || userProfile.city || genderDisplay) && (
                 <Text style={styles.profileLine}>
                   {userProfile.age ? `${userProfile.age}` : ''}
                   {userProfile.city ? `${userProfile.age ? ' · ' : ''}${userProfile.city}` : ''}
                   {genderDisplay ? `${userProfile.age || userProfile.city ? ' · ' : ''}${genderDisplay}` : ''}
                 </Text>
-              ) : null}
+              )}
 
-              {/* NEW: bio */}
-              {userProfile.bio ? <Text style={styles.bio}>{userProfile.bio}</Text> : null}
-            </View>
-          </View>
+              {/* Bio */}
+              {userProfile.bio && <Text style={styles.bio}>{userProfile.bio}</Text>}
 
-          <View style={styles.profileStats}>
-            <View style={styles.statColumn}>
-              <Text style={styles.statNumber}>{totalFavorites}</Text>
-              <Text style={styles.statLabel}>films</Text>
-            </View>
-            <View style={styles.statDivider} />
-            <View style={styles.statColumn}>
-              <Text style={styles.statNumber}>{totalWatches}</Text>
-              <Text style={styles.statLabel}>this year</Text>
-            </View>
-            <View style={styles.statDivider} />
-            <View style={styles.statColumn}>
-              <Text style={styles.statNumber}>{ratedGenres}</Text>
-              <Text style={styles.statLabel}>genres</Text>
+              {/* Gender(s) I'd like to match */}
+              {(userProfile as any).interestedIn && (userProfile as any).interestedIn.length > 0 && (
+                <Text style={styles.interestedIn}>
+                  looking for: {(userProfile as any).interestedIn.join(', ')}
+                </Text>
+              )}
             </View>
           </View>
         </View>
@@ -392,34 +378,17 @@ const styles = StyleSheet.create({
   scrollContent: { paddingBottom: 40 },
 
   profileHeader: { paddingHorizontal: 20, paddingVertical: 30, borderBottomWidth: 1, borderBottomColor: 'rgba(240, 228, 193, 0.1)' },
-  profileInfo: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
+  profileInfo: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 12 },
 
-  avatarContainer: { width: 60, height: 60, borderRadius: 30, backgroundColor: '#511619', alignItems: 'center', justifyContent: 'center', marginRight: 16 },
-  avatarText: { color: '#F0E4C1', fontSize: 24, fontWeight: 'bold', textTransform: 'lowercase' },
+  avatarContainer: { width: 70, height: 70, borderRadius: 35, backgroundColor: '#511619', alignItems: 'center', justifyContent: 'center', marginRight: 16 },
+  avatarText: { color: '#F0E4C1', fontSize: 28, fontWeight: 'bold', textTransform: 'lowercase' },
 
-  userDetails: { flex: 1 },
-  displayName: { color: '#F0E4C1', fontSize: 24, fontWeight: 'bold', marginBottom: 4, textTransform: 'lowercase' },
-  userEmail: { color: '#F0E4C1', fontSize: 14, opacity: 0.7, textTransform: 'lowercase' },
+  userDetails: { flex: 1, paddingTop: 4 },
+  displayName: { color: '#F0E4C1', fontSize: 26, fontWeight: 'bold', marginBottom: 8, textTransform: 'lowercase' },
 
-  // NEW info line + bio
-  profileLine: { color: '#F0E4C1', fontSize: 13, opacity: 0.85, marginTop: 6, textTransform: 'lowercase' },
-  bio: { color: '#F0E4C1', fontSize: 13, opacity: 0.8, marginTop: 6, textTransform: 'lowercase' },
-
-  profileStats: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-around',
-    backgroundColor: 'rgba(240, 228, 193, 0.05)',
-    borderRadius: 12,
-    paddingVertical: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(240, 228, 193, 0.1)',
-    marginTop: 16,
-  },
-  statColumn: { alignItems: 'center', flex: 1 },
-  statNumber: { color: '#F0E4C1', fontSize: 20, fontWeight: 'bold', marginBottom: 2 },
-  statLabel: { color: '#F0E4C1', fontSize: 12, opacity: 0.7, textTransform: 'lowercase' },
-  statDivider: { width: 1, height: 30, backgroundColor: 'rgba(240, 228, 193, 0.2)' },
+  profileLine: { color: '#F0E4C1', fontSize: 16, opacity: 0.85, marginBottom: 8, textTransform: 'lowercase', lineHeight: 22 },
+  bio: { color: '#F0E4C1', fontSize: 15, opacity: 0.8, marginBottom: 8, textTransform: 'lowercase', lineHeight: 22 },
+  interestedIn: { color: '#F0E4C1', fontSize: 15, opacity: 0.75, marginTop: 4, textTransform: 'lowercase', fontStyle: 'italic', lineHeight: 22 },
 
   section: { paddingHorizontal: 20, paddingVertical: 24 },
 

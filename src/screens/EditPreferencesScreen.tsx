@@ -37,6 +37,7 @@ export default function EditPreferencesScreen() {
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [isNewUser, setIsNewUser] = useState(false);
 
   const [favorites, setFavorites] = useState<FavoriteMovie[]>([]);
   const [recentWatches, setRecentWatches] = useState<RecentWatch[]>([]);
@@ -103,18 +104,18 @@ export default function EditPreferencesScreen() {
     ],
   };
 
-const genreList = [
-  { key: 'action', label: 'action', required: true },
-  { key: 'romance', label: 'romance', required: true },
-  { key: 'drama', label: 'drama', required: true },
-  { key: 'animation', label: 'animation', required: true },
-  { key: 'horror', label: 'horror', required: false },
-  { key: 'comedy', label: 'comedy', required: false },
-  { key: 'thriller', label: 'thriller', required: false },
-  { key: 'scifi', label: 'sci-fi', required: false },
-  { key: 'fantasy', label: 'fantasy', required: false },
-  { key: 'documentary', label: 'documentary', required: false },
-];
+  const genreList = [
+    { key: 'action', label: 'action', required: true },
+    { key: 'romance', label: 'romance', required: true },
+    { key: 'drama', label: 'drama', required: true },
+    { key: 'animation', label: 'animation', required: true },
+    { key: 'horror', label: 'horror', required: false },
+    { key: 'comedy', label: 'comedy', required: false },
+    { key: 'thriller', label: 'thriller', required: false },
+    { key: 'scifi', label: 'sci-fi', required: false },
+    { key: 'fantasy', label: 'fantasy', required: false },
+    { key: 'documentary', label: 'documentary', required: false },
+  ];
 
   useEffect(() => {
     loadUserData();
@@ -148,6 +149,7 @@ const genreList = [
         setFavorites(profile.favorites || []);
         setRecentWatches(profile.recentWatches || []);
         setGenreRatings(profile.genreRatings || []);
+        setIsNewUser(!profile.hasPreferences);
       }
     } catch (error) {
       console.error('error loading user data:', error);
@@ -157,42 +159,60 @@ const genreList = [
     }
   };
 
-const saveChanges = async () => {
-  if (!canContinueFavorites) {
-    return Alert.alert('incomplete', `you need to add ${4 - favorites.length} more favorite(s)`);
-  }
-  if (!canContinueRecents) {
-    return Alert.alert('incomplete', `you need to add ${4 - recentWatches.length} more recent watch(es)`);
-  }
-  if (!canContinueGenres) {
-    return Alert.alert('incomplete', 'please rate all required genres (action, romance, drama, animation) before saving');
-  }
+  const mandatoryGenres = ['action', 'romance', 'drama', 'animation'];
 
-  try {
-    setSaving(true);
-    const currentUser = FirebaseAuthService.getCurrentUser();
-    if (!currentUser) return;
+  const canContinueFavorites = favorites.length >= 4;
+  const canContinueRecents = recentWatches.length >= 4;
+  const canContinueGenres = mandatoryGenres.every((genre) =>
+    genreRatings.some((rating) => rating.genre === genre && rating.rating > 0)
+  );
 
-    await FirestoreService.saveUserProfile(currentUser.uid, {
-      favorites,
-      recentWatches,
-      genreRatings,
-    });
+  const saveChanges = async () => {
+    if (!canContinueFavorites) {
+      return Alert.alert('incomplete', `you need to add ${4 - favorites.length} more favorite(s)`);
+    }
+    if (!canContinueRecents) {
+      return Alert.alert('incomplete', `you need to add ${4 - recentWatches.length} more recent watch(es)`);
+    }
+    if (!canContinueGenres) {
+      return Alert.alert('incomplete', 'please rate all required genres (action, romance, drama, animation) before saving');
+    }
 
-     await FirestoreService.updateUserProfile(currentUser.uid, { hasPreferences: true });
+    try {
+      setSaving(true);
+      const currentUser = FirebaseAuthService.getCurrentUser();
+      if (!currentUser) return;
 
-    Alert.alert('saved', 'your preferences have been updated!', [
-      { text: 'ok', onPress: () => navigation.goBack() },
-    ]);
-  } catch (error) {
-    console.error('error saving preferences:', error);
-    Alert.alert('error', 'failed to save your preferences. please try again.');
-  } finally {
-    setSaving(false);
-  }
-};
+      await FirestoreService.saveUserProfile(currentUser.uid, {
+        favorites,
+        recentWatches,
+        genreRatings,
+      });
+
+      await FirestoreService.updateUserProfile(currentUser.uid, { hasPreferences: true });
+
+      Alert.alert('saved', 'your preferences have been updated!', [
+        { text: 'ok', onPress: () => navigation.goBack() },
+      ]);
+    } catch (error) {
+      console.error('error saving preferences:', error);
+      Alert.alert('error', 'failed to save your preferences. please try again.');
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const goNext = useCallback(() => {
+    if (stepIndex === 0 && !canContinueFavorites) {
+      return Alert.alert('incomplete', `you need to add ${4 - favorites.length} more favorite(s)`);
+    }
+    if (stepIndex === 1 && !canContinueRecents) {
+      return Alert.alert('incomplete', `you need to add ${4 - recentWatches.length} more recent watch(es)`);
+    }
+    if (stepIndex === 2 && !canContinueGenres) {
+      return Alert.alert('incomplete', 'please rate all required genres (action, romance, drama, animation) before saving');
+    }
+
     if (stepIndex < steps.length - 1) {
       const next = stepIndex + 1;
       setStepIndex(next);
@@ -200,7 +220,7 @@ const saveChanges = async () => {
     } else {
       saveChanges();
     }
-  }, [stepIndex, steps.length]);
+  }, [stepIndex, steps.length, canContinueFavorites, canContinueRecents, canContinueGenres, favorites.length, recentWatches.length]);
 
   const goBack = useCallback(() => {
     if (stepIndex > 0) {
@@ -208,9 +228,13 @@ const saveChanges = async () => {
       setStepIndex(prev);
       scrollRef.current?.scrollTo({ x: width * prev, animated: true });
     } else {
-      navigation.goBack();
+      if (isNewUser) {
+        Alert.alert('preferences required', 'you need to complete your preferences before using the app');
+      } else {
+        navigation.goBack();
+      }
     }
-  }, [stepIndex, navigation]);
+  }, [stepIndex, navigation, isNewUser]);
 
   const addFavorite = (movie: Movie) => {
     if (favorites.length >= 4) {
@@ -264,36 +288,21 @@ const saveChanges = async () => {
   const updateRecentRating = (id: string, rating: number) =>
     setRecentWatches((prev) => prev.map((w) => (w.id === id ? { ...w, rating } : w)));
 
-const updateGenreRating = (genre: string, rating: number) => {
-  setGenreRatings((prev) => {
-    const existing = prev.find((g) => g.genre === genre);
-    if (existing) {
-      // Update the rating if it exists
-      return prev.map((g) =>
-        g.genre === genre ? { ...g, rating } : g
-      );
-    } else {
-      // Otherwise, add a new rating entry
-      return [...prev, { genre, rating }];
-    }
-  });
-};
+  const updateGenreRating = (genre: string, rating: number) => {
+    setGenreRatings((prev) => {
+      const existing = prev.find((g) => g.genre === genre);
+      if (existing) {
+        return prev.map((g) => (g.genre === genre ? { ...g, rating } : g));
+      } else {
+        return [...prev, { genre, rating }];
+      }
+    });
+  };
 
   const getGenreRating = (genre: string): number => {
     return genreRatings.find((g) => g.genre === genre)?.rating || 0;
   };
 
-  // VALIDATION: Block continue unless requirements met
-  const canContinueFavorites = favorites.length >= 4;
-  const canContinueRecents = recentWatches.length >= 4;
-  
-  // Only require 4 mandatory genres to be rated
-const mandatoryGenres = ['action', 'romance', 'drama', 'animation'];
-
-// Update genre validation logic for saving preferences
-const canContinueGenres = mandatoryGenres.every((genre) =>
-  genreRatings.some((rating) => rating.genre === genre && rating.rating > 0)
-);
   const canProceed = stepIndex === 0 ? canContinueFavorites : 
                      stepIndex === 1 ? canContinueRecents : 
                      canContinueGenres;
@@ -475,61 +484,61 @@ const canContinueGenres = mandatoryGenres.every((genre) =>
 
         {/* GENRES STEP */}
         <View style={s.step}>
-  <Text style={s.bigTitle}>rate these genres</Text>
-  <Text style={s.subtitle}>how do you feel about these genres?</Text>
+          <Text style={s.bigTitle}>rate these genres</Text>
+          <Text style={s.subtitle}>how do you feel about these genres?</Text>
 
-  <ScrollView style={s.genresScrollView} showsVerticalScrollIndicator={false}>
-    {genreList.map((genreItem) => {
-      const posters = posterSets[genreItem.key] || [];
-      const rating = getGenreRating(genreItem.key);
+          <ScrollView style={s.genresScrollView} showsVerticalScrollIndicator={false}>
+            {genreList.map((genreItem) => {
+              const posters = posterSets[genreItem.key] || [];
+              const rating = getGenreRating(genreItem.key);
 
-      return (
-        <View key={genreItem.key} style={s.genreCard}>
-          <View style={s.cardTitleRow}>
-            <Text style={s.cardTitle}>{genreItem.label}</Text>
-            {genreItem.required && <Text style={s.requiredBadge}>required</Text>}
-          </View>
+              return (
+                <View key={genreItem.key} style={s.genreCard}>
+                  <View style={s.cardTitleRow}>
+                    <Text style={s.cardTitle}>{genreItem.label}</Text>
+                    {genreItem.required && <Text style={s.requiredBadge}>required</Text>}
+                  </View>
 
-          <View style={s.postersRow}>
-            {posters.map((poster, idx) => (
-              <View key={idx} style={s.posterCell}>
-                <Image source={{ uri: poster.uri }} style={s.posterBig} />
-                <Text style={s.posterCaption}>{poster.title}</Text>
-                <Text style={s.posterYear}>{poster.year}</Text>
-              </View>
-            ))}
-          </View>
+                  <View style={s.postersRow}>
+                    {posters.map((poster, idx) => (
+                      <View key={idx} style={s.posterCell}>
+                        <Image source={{ uri: poster.uri }} style={s.posterBig} />
+                        <Text style={s.posterCaption}>{poster.title}</Text>
+                        <Text style={s.posterYear}>{poster.year}</Text>
+                      </View>
+                    ))}
+                  </View>
 
-          <Text style={s.cardQuestion}>how do you feel about {genreItem.label}?</Text>
+                  <Text style={s.cardQuestion}>how do you feel about {genreItem.label}?</Text>
 
-          <View style={s.starsRow}>
-            {[1, 2, 3, 4, 5].map((star) => (
-              <TouchableOpacity
-                key={star}
-                onPress={() => updateGenreRating(genreItem.key, star)}
-                style={s.starButton}
-              >
-                <Text
-                  style={[
-                    s.genreStarText,
-                    { fontFamily: starFontFamily },
-                    rating >= star ? s.starFilled : s.starEmpty,
-                  ]}
-                >
-                  ★
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
+                  <View style={s.starsRow}>
+                    {[1, 2, 3, 4, 5].map((star) => (
+                      <TouchableOpacity
+                        key={star}
+                        onPress={() => updateGenreRating(genreItem.key, star)}
+                        style={s.starButton}
+                      >
+                        <Text
+                          style={[
+                            s.genreStarText,
+                            { fontFamily: starFontFamily },
+                            rating >= star ? s.starFilled : s.starEmpty,
+                          ]}
+                        >
+                          ★
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </View>
+              );
+            })}
+
+            {!canContinueGenres && (
+              <Text style={s.requirementText}>please rate all required genres (action, romance, drama, animation)</Text>
+            )}
+          </ScrollView>
         </View>
-      );
-    })}
-
-    {!canContinueGenres && (
-      <Text style={s.requirementText}>please rate all required genres (action, romance, drama, animation)</Text>
-    )}
-  </ScrollView>
-</View>
       </ScrollView>
 
       <View style={s.footer}>
