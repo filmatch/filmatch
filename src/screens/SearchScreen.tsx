@@ -19,7 +19,7 @@ import TMDbService, { Movie } from '../services/TMDbService';
 import debounce from 'lodash.debounce';
 
 const { width } = Dimensions.get('window');
-const CARD_W = width * 0.28; // Made smaller for better grid
+const CARD_W = width * 0.28;
 
 /*** minimal inline icons (no emoji, no libraries) ***/
 const Magnifier = ({ color = '#F0E4C1' }: { color?: string }) => (
@@ -83,7 +83,7 @@ export default function SearchScreen() {
   const [query, setQuery] = useState('');
   const [searchResults, setSearchResults] = useState<Movie[]>([]);
   const [trendingMovies, setTrendingMovies] = useState<Movie[]>([]);
-  const [popularMovies, setPopularMovies] = useState<Movie[]>([]);
+  const [topRatedMovies, setTopRatedMovies] = useState<Movie[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
   const [discoverLoading, setDiscoverLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -94,12 +94,12 @@ export default function SearchScreen() {
 
   const loadDiscover = async () => {
     try {
-      const [trending, popular] = await Promise.all([
+      const [trending, topRated] = await Promise.all([
         TMDbService.getTrendingMovies('week'),
-        TMDbService.getPopularMovies(),
+        TMDbService.getTopRatedMovies(),
       ]);
       setTrendingMovies((trending ?? []).slice(0, 20));
-      setPopularMovies((popular ?? []).slice(0, 40));
+      setTopRatedMovies((topRated ?? []).slice(0, 40));
     } catch {
       Alert.alert('error', 'failed to load movies.');
     } finally {
@@ -288,8 +288,8 @@ export default function SearchScreen() {
       <StatusBar style="light" />
 
       <FlatList
-        data={popularMovies}
-        keyExtractor={(i) => `popular-${i.id}`}
+        data={topRatedMovies}
+        keyExtractor={(i) => `toprated-${i.id}`}
         numColumns={3}
         renderItem={renderDiscoverCard}
         columnWrapperStyle={styles.discoverRow}
@@ -335,8 +335,8 @@ export default function SearchScreen() {
               </View>
             )}
 
-            {/* Popular Section Header */}
-            <Text style={[styles.sectionTitle, styles.popularTitle]}>popular movies</Text>
+            {/* Top Rated Section Header */}
+            <Text style={[styles.sectionTitle, styles.popularTitle]}>all-time popular movies</Text>
           </View>
         }
         refreshControl={
