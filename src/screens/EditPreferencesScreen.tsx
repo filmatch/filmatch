@@ -107,10 +107,10 @@ export default function EditPreferencesScreen() {
   const genreList = [
     { key: 'action', label: 'action', required: true },
     { key: 'romance', label: 'romance', required: true },
-    { key: 'drama', label: 'drama', required: true },
-    { key: 'animation', label: 'animation', required: true },
-    { key: 'horror', label: 'horror', required: false },
-    { key: 'comedy', label: 'comedy', required: false },
+    { key: 'comedy', label: 'comedy', required: true },
+    { key: 'horror', label: 'horror', required: true },
+    { key: 'drama', label: 'drama', required: false },
+    { key: 'animation', label: 'animation', required: false },
     { key: 'thriller', label: 'thriller', required: false },
     { key: 'scifi', label: 'sci-fi', required: false },
     { key: 'fantasy', label: 'fantasy', required: false },
@@ -159,7 +159,7 @@ export default function EditPreferencesScreen() {
     }
   };
 
-  const mandatoryGenres = ['action', 'romance', 'drama', 'animation'];
+  const mandatoryGenres = ['action', 'romance', 'comedy', 'horror'];
 
   const canContinueFavorites = favorites.length >= 4;
   const canContinueRecents = recentWatches.length >= 4;
@@ -175,7 +175,7 @@ export default function EditPreferencesScreen() {
       return Alert.alert('incomplete', `you need to add ${4 - recentWatches.length} more recent watch(es)`);
     }
     if (!canContinueGenres) {
-      return Alert.alert('incomplete', 'please rate all required genres (action, romance, drama, animation) before saving');
+      return Alert.alert('incomplete', 'please rate all required genres (action, romance, comedy, horror) before saving');
     }
 
     try {
@@ -210,7 +210,7 @@ export default function EditPreferencesScreen() {
       return Alert.alert('incomplete', `you need to add ${4 - recentWatches.length} more recent watch(es)`);
     }
     if (stepIndex === 2 && !canContinueGenres) {
-      return Alert.alert('incomplete', 'please rate all required genres (action, romance, drama, animation) before saving');
+      return Alert.alert('incomplete', 'please rate all required genres (action, romance, comedy, horror) before saving');
     }
 
     if (stepIndex < steps.length - 1) {
@@ -324,9 +324,13 @@ export default function EditPreferencesScreen() {
       <StatusBar style="light" />
 
       <View style={s.header}>
-        <TouchableOpacity onPress={goBack} style={s.backButton}>
-          <Text style={s.backText}>← back</Text>
-        </TouchableOpacity>
+        {stepIndex > 0 ? (
+          <TouchableOpacity onPress={goBack} style={s.backButton}>
+            <Text style={s.backText}>← back</Text>
+          </TouchableOpacity>
+        ) : (
+          <View style={{ width: 60 }} />
+        )}
         <Text style={s.headerTitle}>edit preferences</Text>
         <View style={{ width: 60 }} />
       </View>
@@ -535,7 +539,7 @@ export default function EditPreferencesScreen() {
             })}
 
             {!canContinueGenres && (
-              <Text style={s.requirementText}>please rate all required genres (action, romance, drama, animation)</Text>
+              <Text style={s.requirementText}>please rate all required genres (action, romance, comedy, horror)</Text>
             )}
           </ScrollView>
         </View>
