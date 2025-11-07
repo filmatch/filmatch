@@ -131,6 +131,11 @@ export default function ProfileScreen() {
     navigateNested('MainApp', 'EditPreferences');
   };
 
+  const handleEditProfile = () => {
+    logTree?.();
+    navigateNested('MainApp', 'EditProfile');
+  };
+
   const genderDisplay = userProfile?.gender ? userProfile.gender : '';
 
   if (loading) {
@@ -197,9 +202,9 @@ export default function ProfileScreen() {
               {userProfile.bio && <Text style={styles.bio}>{userProfile.bio}</Text>}
 
               {/* Gender(s) I'd like to match */}
-              {(userProfile as any).interestedIn && (userProfile as any).interestedIn.length > 0 && (
+              {userProfile.genderPreferences && userProfile.genderPreferences.length > 0 && (
                 <Text style={styles.interestedIn}>
-                  looking for: {(userProfile as any).interestedIn.join(', ')}
+                  looking for: {userProfile.genderPreferences.join(', ')}
                 </Text>
               )}
             </View>
@@ -344,6 +349,10 @@ export default function ProfileScreen() {
             <Text style={styles.primaryButtonText}>edit preferences</Text>
           </TouchableOpacity>
 
+          <TouchableOpacity style={styles.editProfileButton} onPress={handleEditProfile}>
+            <Text style={styles.editProfileButtonText}>edit profile</Text>
+          </TouchableOpacity>
+
           <TouchableOpacity style={styles.secondaryButton} onPress={confirmSignOut}>
             <Text style={styles.secondaryButtonText}>sign out</Text>
           </TouchableOpacity>
@@ -444,6 +453,8 @@ const styles = StyleSheet.create({
   actionsContainer: { paddingHorizontal: 20, paddingTop: 20, gap: 12 },
   primaryButton: { backgroundColor: '#511619', borderRadius: 12, paddingVertical: 16, alignItems: 'center' },
   primaryButtonText: { color: '#F0E4C1', fontSize: 16, fontWeight: '700', textTransform: 'lowercase' },
+  editProfileButton: { backgroundColor: 'rgba(240, 228, 193, 0.1)', borderRadius: 12, paddingVertical: 16, alignItems: 'center', borderWidth: 1, borderColor: 'rgba(240, 228, 193, 0.2)' },
+  editProfileButtonText: { color: '#F0E4C1', fontSize: 16, fontWeight: '700', textTransform: 'lowercase' },
   secondaryButton: {
     backgroundColor: 'transparent',
     borderRadius: 12,
