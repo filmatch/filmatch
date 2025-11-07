@@ -137,6 +137,9 @@ export default function ProfileScreen() {
   };
 
   const genderDisplay = userProfile?.gender ? userProfile.gender : '';
+  const interestedInDisplay = (userProfile?.genderPreferences && Array.isArray(userProfile.genderPreferences) && userProfile.genderPreferences.length > 0)
+    ? userProfile.genderPreferences.join(', ')
+    : '';
 
   if (loading) {
     return (
@@ -166,6 +169,7 @@ export default function ProfileScreen() {
 
   const totalWatches = (userProfile.recentWatches || []).length;
   const ratedGenres = (userProfile.genreRatings || []).filter((g) => g.rating > 0).length;
+  const profilePhotoUrl = (userProfile.photos && userProfile.photos.length > 0) ? userProfile.photos[0] : null;
 
   return (
     <SafeAreaView style={styles.container}>
@@ -179,11 +183,17 @@ export default function ProfileScreen() {
         {/* Profile Header */}
         <View style={styles.profileHeader}>
           <View style={styles.profileInfo}>
-            <View style={styles.avatarContainer}>
-              <Text style={styles.avatarText}>
-                {(userProfile.displayName || userProfile.email || 'u').charAt(0).toLowerCase()}
-              </Text>
+            {/* Profile Photo */}
+            <View style={styles.profilePhotoContainer}>
+              {profilePhotoUrl ? (
+                <Image source={{ uri: profilePhotoUrl }} style={styles.profilePhoto} />
+              ) : (
+                <View style={styles.profilePhotoPlaceholder}>
+                  <Text style={styles.profilePhotoPlaceholderText}>no photo</Text>
+                </View>
+              )}
             </View>
+
             <View style={styles.userDetails}>
               <Text style={styles.displayName}>
                 {(userProfile.displayName || 'movie lover').toLowerCase()}
@@ -201,10 +211,10 @@ export default function ProfileScreen() {
               {/* Bio */}
               {userProfile.bio && <Text style={styles.bio}>{userProfile.bio}</Text>}
 
-              {/* Gender(s) I'd like to match */}
-              {userProfile.genderPreferences && userProfile.genderPreferences.length > 0 && (
+              {/* Genders I'd like to match */}
+              {interestedInDisplay && (
                 <Text style={styles.interestedIn}>
-                  looking for: {userProfile.genderPreferences.join(', ')}
+                  looking for: {interestedInDisplay}
                 </Text>
               )}
             </View>
@@ -371,6 +381,7 @@ export default function ProfileScreen() {
 
 const { width } = Dimensions.get('window');
 const POSTER_SIZE = (width - 60) / 4 - 6;
+const PROFILE_PHOTO_SIZE = POSTER_SIZE;
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#111C2A' },
@@ -389,8 +400,34 @@ const styles = StyleSheet.create({
   profileHeader: { paddingHorizontal: 20, paddingVertical: 30, borderBottomWidth: 1, borderBottomColor: 'rgba(240, 228, 193, 0.1)' },
   profileInfo: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 12 },
 
-  avatarContainer: { width: 70, height: 70, borderRadius: 35, backgroundColor: '#511619', alignItems: 'center', justifyContent: 'center', marginRight: 16 },
-  avatarText: { color: '#F0E4C1', fontSize: 28, fontWeight: 'bold', textTransform: 'lowercase' },
+  profilePhotoContainer: { 
+    width: PROFILE_PHOTO_SIZE, 
+    height: PROFILE_PHOTO_SIZE, 
+    marginRight: 16,
+    borderRadius: 8,
+    overflow: 'hidden',
+  },
+  profilePhoto: { 
+    width: '100%', 
+    height: '100%',
+    backgroundColor: 'rgba(240, 228, 193, 0.05)',
+  },
+  profilePhotoPlaceholder: {
+    width: '100%',
+    height: '100%',
+    backgroundColor: 'rgba(240, 228, 193, 0.05)',
+    borderWidth: 2,
+    borderColor: 'rgba(240, 228, 193, 0.2)',
+    borderStyle: 'dashed',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  profilePhotoPlaceholderText: {
+    color: 'rgba(240, 228, 193, 0.4)',
+    fontSize: 10,
+    textAlign: 'center',
+    textTransform: 'lowercase',
+  },
 
   userDetails: { flex: 1, paddingTop: 4 },
   displayName: { color: '#F0E4C1', fontSize: 26, fontWeight: 'bold', marginBottom: 8, textTransform: 'lowercase' },

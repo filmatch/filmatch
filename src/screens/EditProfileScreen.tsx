@@ -11,6 +11,8 @@ import {
   Alert,
   Image,
   Dimensions,
+  Modal,
+  PanResponder,
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { useNavigation } from "@react-navigation/native";
@@ -31,10 +33,10 @@ type Draft = {
   email: string;
 };
 
-const GENDER_OPTIONS = ["female", "male", "non-binary", "prefer not to say"];
-const INTERESTED_OPTIONS = ["women", "men", "non-binary", "everyone"];
+const GENDER_OPTIONS = ["female", "male", "nonbinary", "other"];
+const INTERESTED_OPTIONS = ["female", "male", "nonbinary", "other"];
 const MAX_BIO = 160;
-const MAX_PHOTOS = 3;
+const MAX_PHOTOS = 6;
 
 export default function EditProfileScreen() {
   const navigation = useNavigation();
@@ -46,9 +48,11 @@ export default function EditProfileScreen() {
     gender: "",
     interestedIn: [],
     bio: "",
-    photos: ["", "", ""],
+    photos: [],
     email: "",
   });
+  const [selectedPhotoIndex, setSelectedPhotoIndex] = useState<number | null>(null);
+  const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
 
   const bioCount = useMemo(() => draft.bio.length, [draft.bio]);
 
@@ -67,13 +71,8 @@ export default function EditProfileScreen() {
           : [];
 
         const existingPhotos = profile?.photos && Array.isArray(profile.photos) 
-          ? profile.photos.slice(0, MAX_PHOTOS) 
+          ? profile.photos.filter(p => p && p.trim())
           : [];
-        
-        const photosFilled = [...existingPhotos];
-        while (photosFilled.length < MAX_PHOTOS) {
-          photosFilled.push("");
-        }
 
         const d: Draft = {
           displayName: profile?.displayName || "",
@@ -82,7 +81,7 @@ export default function EditProfileScreen() {
           gender: (profile as any)?.gender || "",
           interestedIn: interestedArray,
           bio: profile?.bio || "",
-          photos: photosFilled,
+          photos: existingPhotos,
           email: user.email || "",
         };
         setDraft(d);
@@ -93,12 +92,43 @@ export default function EditProfileScreen() {
     })();
   }, []);
 
-  const setPhotoAt = (idx: number, url: string) => {
+  const handlePhotoUpload = (index: number) => {
+    // Placeholder for image picker - to be implemented
+    Alert.alert("upload photo", "image picker will be implemented here");
+    // TODO: Implement expo-image-picker
+  };
+
+  const removePhoto = (index: number) => {
+    if (draft.photos.length <= 1) {
+      Alert.alert("cannot remove", "you must have at least one photo");
+      return;
+    }
+
     setDraft((prev) => {
-      const next = [...prev.photos];
-      next[idx] = url;
-      return { ...prev, photos: next };
+      const newPhotos = [...prev.photos];
+      newPhotos.splice(index, 1);
+      return { ...prev, photos: newPhotos };
     });
+    setSelectedPhotoIndex(null);
+  };
+
+  const movePhoto = (fromIndex: number, toIndex: number) => {
+    setDraft((prev) => {
+      const newPhotos = [...prev.photos];
+      const [moved] = newPhotos.splice(fromIndex, 1);
+      newPhotos.splice(toIndex, 0, moved);
+      return { ...prev, photos: newPhotos };
+    });
+  };
+
+  const navigatePhoto = (direction: 'prev' | 'next') => {
+    if (selectedPhotoIndex === null) return;
+    
+    if (direction === 'prev' && selectedPhotoIndex > 0) {
+      setSelectedPhotoIndex(selectedPhotoIndex - 1);
+    } else if (direction === 'next' && selectedPhotoIndex < draft.photos.length - 1) {
+      setSelectedPhotoIndex(selectedPhotoIndex + 1);
+    }
   };
 
   const toggleInterested = (option: string) => {
@@ -121,7 +151,8 @@ export default function EditProfileScreen() {
       Number.isFinite(ageNum) &&
       ageNum >= 18 &&
       ageNum <= 100 &&
-      bioCount <= MAX_BIO
+      bioCount <= MAX_BIO &&
+      draft.photos.length > 0
     );
   };
 
@@ -146,18 +177,17 @@ export default function EditProfileScreen() {
       return;
     }
     if (draft.interestedIn.length === 0) {
-      Alert.alert("required", "please select who you'd like to match with.");
+      Alert.alert("required", "please select at least one gender you'd like to match with.");
+      return;
+    }
+    if (draft.photos.length === 0) {
+      Alert.alert("required", "you must have at least one photo.");
       return;
     }
     if (bioCount > MAX_BIO) {
       Alert.alert("bio too long", `bio must be ≤ ${MAX_BIO} characters.`);
       return;
     }
-
-    const photosClean = draft.photos
-      .map((u) => u.trim())
-      .filter(Boolean)
-      .slice(0, MAX_PHOTOS);
 
     const patch = {
       displayName: draft.displayName.trim(),
@@ -166,7 +196,7 @@ export default function EditProfileScreen() {
       gender: draft.gender,
       interestedIn: draft.interestedIn,
       bio: draft.bio.trim() || undefined,
-      photos: photosClean,
+      photos: draft.photos,
     };
 
     setSaving(true);
@@ -199,6 +229,40 @@ export default function EditProfileScreen() {
     setDraft((p) => ({ ...p, bio: truncated }));
   };
 
+  const renderPhotoSlot = (index: number) => {
+    const photo = draft.photos[index];
+    const isLastSlot = index >= draft.photos.length && draft.photos.length < MAX_PHOTOS;
+    
+    if (photo) {
+      return (
+        <TouchableOpacity
+          key={index}
+          style={styles.photoSlot}
+          onPress={() => setSelectedPhotoIndex(index)}
+          onLongPress={() => setDraggedIndex(index)}
+        >
+          <Image source={{ uri: photo }} style={styles.photoImage} />
+          {index === 0 && (
+            <View style={styles.profileBadge}>
+              <Text style={styles.profileBadgeText}>profile</Text>
+            </View>
+          )}
+        </TouchableOpacity>
+      );
+    } else if (isLastSlot) {
+      return (
+        <TouchableOpacity
+          key={index}
+          style={[styles.photoSlot, styles.emptyPhotoSlot]}
+          onPress={() => handlePhotoUpload(index)}
+        >
+          <Text style={styles.plusIcon}>+</Text>
+        </TouchableOpacity>
+      );
+    }
+    return null;
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar style="light" />
@@ -216,6 +280,22 @@ export default function EditProfileScreen() {
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
       >
+        {/* Profile Photo Display */}
+        {draft.photos.length > 0 && (
+          <View style={styles.profilePhotoContainer}>
+            <Image source={{ uri: draft.photos[0] }} style={styles.profilePhoto} />
+          </View>
+        )}
+
+        {/* Photos Grid */}
+        <Text style={styles.label}>photos (up to {MAX_PHOTOS})</Text>
+        <View style={styles.photosGrid}>
+          {Array.from({ length: Math.min(draft.photos.length + 1, MAX_PHOTOS) }).map((_, idx) => 
+            renderPhotoSlot(idx)
+          )}
+        </View>
+        <Text style={styles.photoHint}>tap and hold to rearrange • first photo is your profile photo</Text>
+
         <Text style={styles.label}>email</Text>
         <View style={styles.emailBox}>
           <Text style={styles.emailText}>{draft.email || "no email"}</Text>
@@ -282,7 +362,7 @@ export default function EditProfileScreen() {
           })}
         </View>
 
-        <Text style={styles.label}>interested in (select all that apply)</Text>
+        <Text style={styles.label}>genders i'd like to match (pick at least one)</Text>
         <View style={styles.interestedRow}>
           {INTERESTED_OPTIONS.map((option) => {
             const isSelected = draft.interestedIn.includes(option);
@@ -323,30 +403,6 @@ export default function EditProfileScreen() {
           textAlignVertical="top"
         />
 
-        <Text style={styles.label}>photos (up to {MAX_PHOTOS})</Text>
-        <View style={styles.photosGrid}>
-          {draft.photos.map((url, idx) => (
-            <View key={idx} style={styles.photoBox}>
-              {url ? (
-                <Image source={{ uri: url }} style={styles.photoPreview} />
-              ) : (
-                <View style={styles.photoPlaceholder}>
-                  <Text style={styles.photoPlaceholderText}>{idx + 1}</Text>
-                </View>
-              )}
-              <TextInput
-                value={url}
-                onChangeText={(t) => setPhotoAt(idx, t)}
-                style={styles.photoInput}
-                placeholder="image url"
-                placeholderTextColor="rgba(240,228,193,0.5)"
-                autoCapitalize="none"
-                autoCorrect={false}
-              />
-            </View>
-          ))}
-        </View>
-
         <TouchableOpacity
           style={[styles.saveBtn, (!isProfileValid() || saving) && { opacity: 0.6 }]}
           onPress={save}
@@ -355,6 +411,83 @@ export default function EditProfileScreen() {
           <Text style={styles.saveText}>{saving ? "saving…" : "save changes"}</Text>
         </TouchableOpacity>
       </ScrollView>
+
+      {/* Photo Viewer Modal */}
+      <Modal
+        visible={selectedPhotoIndex !== null}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setSelectedPhotoIndex(null)}
+      >
+        <View style={styles.modalOverlay}>
+          <TouchableOpacity 
+            style={styles.modalBackground}
+            activeOpacity={1}
+            onPress={() => setSelectedPhotoIndex(null)}
+          />
+          
+          <View style={styles.modalContent}>
+            {selectedPhotoIndex !== null && (
+              <>
+                <Image 
+                  source={{ uri: draft.photos[selectedPhotoIndex] }} 
+                  style={styles.modalImage}
+                  resizeMode="contain"
+                />
+                
+                <View style={styles.modalControls}>
+                  {selectedPhotoIndex > 0 && (
+                    <TouchableOpacity 
+                      style={styles.navButton}
+                      onPress={() => navigatePhoto('prev')}
+                    >
+                      <Text style={styles.navButtonText}>←</Text>
+                    </TouchableOpacity>
+                  )}
+                  
+                  <View style={styles.modalActions}>
+                    <TouchableOpacity
+                      style={[
+                        styles.removeButton,
+                        draft.photos.length <= 1 && styles.removeButtonDisabled
+                      ]}
+                      onPress={() => removePhoto(selectedPhotoIndex)}
+                      disabled={draft.photos.length <= 1}
+                    >
+                      <Text style={[
+                        styles.removeButtonText,
+                        draft.photos.length <= 1 && styles.removeButtonTextDisabled
+                      ]}>
+                        remove
+                      </Text>
+                    </TouchableOpacity>
+                    
+                    <TouchableOpacity
+                      style={styles.closeButton}
+                      onPress={() => setSelectedPhotoIndex(null)}
+                    >
+                      <Text style={styles.closeButtonText}>close</Text>
+                    </TouchableOpacity>
+                  </View>
+                  
+                  {selectedPhotoIndex < draft.photos.length - 1 && (
+                    <TouchableOpacity 
+                      style={styles.navButton}
+                      onPress={() => navigatePhoto('next')}
+                    >
+                      <Text style={styles.navButtonText}>→</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+                
+                <Text style={styles.photoCounter}>
+                  {selectedPhotoIndex + 1} / {draft.photos.length}
+                </Text>
+              </>
+            )}
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -376,6 +509,17 @@ const styles = StyleSheet.create({
   headerTitle: { color: '#F0E4C1', fontSize: 18, fontWeight: 'bold', textTransform: 'lowercase' },
 
   content: { padding: 20, paddingBottom: 40 },
+
+  profilePhotoContainer: {
+    alignItems: 'center',
+    marginBottom: 24,
+  },
+  profilePhoto: {
+    width: (width - 60) / 4 - 6,
+    height: (width - 60) / 4 - 6,
+    borderRadius: 8,
+    backgroundColor: 'rgba(240,228,193,0.05)',
+  },
   
   label: {
     color: "#F0E4C1",
@@ -394,6 +538,62 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     textTransform: "lowercase",
     fontWeight: "600",
+  },
+
+  photosGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+    marginBottom: 8,
+  },
+  photoSlot: {
+    width: PHOTO_SIZE - 7,
+    height: PHOTO_SIZE - 7,
+    borderRadius: 12,
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  photoImage: {
+    width: '100%',
+    height: '100%',
+    backgroundColor: 'rgba(240,228,193,0.05)',
+  },
+  emptyPhotoSlot: {
+    backgroundColor: 'rgba(240,228,193,0.05)',
+    borderWidth: 2,
+    borderColor: 'rgba(240,228,193,0.2)',
+    borderStyle: 'dashed',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  plusIcon: {
+    color: 'rgba(240,228,193,0.4)',
+    fontSize: 48,
+    fontWeight: '300',
+  },
+  profileBadge: {
+    position: 'absolute',
+    bottom: 4,
+    left: 4,
+    right: 4,
+    backgroundColor: 'rgba(81, 22, 25, 0.9)',
+    paddingVertical: 2,
+    paddingHorizontal: 6,
+    borderRadius: 4,
+    alignItems: 'center',
+  },
+  profileBadgeText: {
+    color: '#F0E4C1',
+    fontSize: 10,
+    fontWeight: '700',
+    textTransform: 'lowercase',
+  },
+  photoHint: {
+    color: 'rgba(240,228,193,0.5)',
+    fontSize: 12,
+    textAlign: 'center',
+    marginBottom: 4,
+    textTransform: 'lowercase',
   },
 
   emailBox: {
@@ -460,50 +660,6 @@ const styles = StyleSheet.create({
   },
   interestedTextActive: { color: "#F0E4C1" },
 
-  photosGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 10,
-    marginBottom: 10,
-  },
-  photoBox: {
-    width: PHOTO_SIZE - 7,
-  },
-  photoPreview: {
-    width: '100%',
-    height: PHOTO_SIZE * 1.3,
-    borderRadius: 12,
-    marginBottom: 8,
-    backgroundColor: 'rgba(240,228,193,0.05)',
-  },
-  photoPlaceholder: {
-    width: '100%',
-    height: PHOTO_SIZE * 1.3,
-    borderRadius: 12,
-    marginBottom: 8,
-    backgroundColor: 'rgba(240,228,193,0.05)',
-    borderWidth: 2,
-    borderColor: 'rgba(240,228,193,0.2)',
-    borderStyle: 'dashed',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  photoPlaceholderText: {
-    color: 'rgba(240,228,193,0.4)',
-    fontSize: 32,
-    fontWeight: 'bold',
-  },
-  photoInput: {
-    backgroundColor: "rgba(240,228,193,0.06)",
-    borderWidth: 1,
-    borderColor: "rgba(240,228,193,0.2)",
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    color: "#F0E4C1",
-    fontSize: 13,
-  },
-
   saveBtn: {
     backgroundColor: "#511619",
     borderRadius: 12,
@@ -517,5 +673,97 @@ const styles = StyleSheet.create({
     fontSize: 16, 
     textTransform: "lowercase",
     letterSpacing: 0.5,
+  },
+
+  // Modal styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.95)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalBackground: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+  },
+  modalContent: {
+    width: '90%',
+    maxHeight: '80%',
+    alignItems: 'center',
+  },
+  modalImage: {
+    width: '100%',
+    height: 400,
+    borderRadius: 12,
+  },
+  modalControls: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    width: '100%',
+    marginTop: 20,
+    gap: 16,
+  },
+  navButton: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: 'rgba(240,228,193,0.1)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(240,228,193,0.3)',
+  },
+  navButtonText: {
+    color: '#F0E4C1',
+    fontSize: 24,
+    fontWeight: 'bold',
+  },
+  modalActions: {
+    flex: 1,
+    flexDirection: 'row',
+    gap: 12,
+    justifyContent: 'center',
+  },
+  removeButton: {
+    backgroundColor: '#511619',
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 8,
+  },
+  removeButtonDisabled: {
+    backgroundColor: 'rgba(81,22,25,0.3)',
+  },
+  removeButtonText: {
+    color: '#F0E4C1',
+    fontSize: 16,
+    fontWeight: '700',
+    textTransform: 'lowercase',
+  },
+  removeButtonTextDisabled: {
+    opacity: 0.5,
+  },
+  closeButton: {
+    backgroundColor: 'rgba(240,228,193,0.1)',
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(240,228,193,0.3)',
+  },
+  closeButtonText: {
+    color: '#F0E4C1',
+    fontSize: 16,
+    fontWeight: '700',
+    textTransform: 'lowercase',
+  },
+  photoCounter: {
+    color: 'rgba(240,228,193,0.6)',
+    fontSize: 14,
+    marginTop: 12,
+    textTransform: 'lowercase',
   },
 });
