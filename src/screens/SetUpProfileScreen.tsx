@@ -52,11 +52,17 @@ export default function SetUpProfileScreen({ navigation }: any) {
   };
 
   const save = async () => {
-    if (!canContinue) return;
+    if (!canContinue) {
+      console.log('Cannot continue - validation failed');
+      return;
+    }
     try {
       setSaving(true);
       const u = FirebaseAuthService.getCurrentUser();
-      if (!u) return;
+      if (!u) {
+        console.log('No user found');
+        return;
+      }
       await FirestoreService.createUserProfileIfMissing(u.uid);
       await FirestoreService.updateUserProfile(u.uid, {
         age: ageNum,
@@ -67,6 +73,8 @@ export default function SetUpProfileScreen({ navigation }: any) {
         hasProfile: true,
       });
       navigation.replace('EditPreferences');
+    } catch (error) {
+      console.error('Error saving profile:', error);
     } finally {
       setSaving(false);
     }

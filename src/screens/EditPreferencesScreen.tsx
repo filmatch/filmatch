@@ -253,9 +253,6 @@ export default function EditPreferencesScreen() {
   const removeFavorite = (id: string) => setFavorites((prev) => prev.filter((f) => f.id !== id));
 
   const addRecentWatch = (movie: Movie) => {
-    if (recentWatches.length >= 10) {
-      return Alert.alert('limit reached', 'you can only have 10 recent watches');
-    }
     if (recentWatches.some((w) => w.title === movie.title && w.year === movie.year)) {
       return Alert.alert('already added', 'this movie is already in your recent watches');
     }
@@ -411,7 +408,8 @@ export default function EditPreferencesScreen() {
 
         {/* RECENTS STEP */}
         <View style={s.step}>
-          <Text style={s.sectionTitle}>recent watches ({recentWatches.length}/10)</Text>
+          <Text style={s.sectionTitle}>recent watches ({recentWatches.length} added)</Text>
+          <Text style={s.stepHint}>add at least 4, but feel free to add more as you watch</Text>
 
           <View style={s.searchContainer}>
             <TextInput
@@ -640,7 +638,8 @@ const s = StyleSheet.create({
 
   step: { width, padding: 20 },
 
-  sectionTitle: { color: C.text, fontSize: 20, fontWeight: 'bold', marginBottom: 8, textTransform: 'lowercase' },
+  sectionTitle: { color: C.text, fontSize: 20, fontWeight: 'bold', marginBottom: 4, textTransform: 'lowercase' },
+  stepHint: { color: C.dim, fontSize: 13, marginBottom: 12, textTransform: 'lowercase' },
   subtitle: { color: C.dim, textAlign: 'center', marginTop: 6, textTransform: 'lowercase', fontSize: 14 },
   bigTitle: { color: C.text, fontSize: 26, textAlign: 'center', marginTop: 8, textTransform: 'lowercase', fontWeight: 'bold' },
 
