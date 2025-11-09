@@ -484,6 +484,8 @@ export default function EditPreferencesScreen() {
           {!canContinueRecents && (
             <Text style={s.requirementText}>you need to add {4 - recentWatches.length} more recent watch(es)</Text>
           )}
+          
+          <Text style={s.helpText}>the more recent watches you add, the better we can calculate compatibility</Text>
         </View>
 
         {/* GENRES STEP */}
@@ -541,6 +543,8 @@ export default function EditPreferencesScreen() {
             {!canContinueGenres && (
               <Text style={s.requirementText}>please rate all required genres (action, romance, comedy, horror)</Text>
             )}
+            
+            <Text style={s.helpText}>the more genres you rate, the better we can calculate compatibility</Text>
           </ScrollView>
         </View>
       </ScrollView>
@@ -708,6 +712,7 @@ const s = StyleSheet.create({
   genreStarText: { fontSize: 24, fontWeight: 'bold', marginHorizontal: 2 },
 
   requirementText: { color: C.accent, textAlign: 'center', marginTop: 16, fontSize: 14, textTransform: 'lowercase' },
+  helpText: { color: C.dim, textAlign: 'center', marginTop: 12, fontSize: 13, textTransform: 'lowercase', fontStyle: 'italic' },
 
   footer: { padding: 16 },
   nextBtn: { backgroundColor: C.accent, borderRadius: 14, paddingVertical: 14, alignItems: 'center' },

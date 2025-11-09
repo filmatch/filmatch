@@ -29,7 +29,7 @@ const SORTED_CITIES = [...CITY_LIST].sort((a, b) =>
 export default function SetUpProfileScreen({ navigation }: any) {
   const [age, setAge] = useState<string>('');
   const [gender, setGender] = useState<string>('');
-  const [genderPreferences, setGenderPreferences] = useState<string[]>([]); // NEW: multi-select
+  const [genderPreferences, setGenderPreferences] = useState<string[]>([]);
   const [city, setCity] = useState<string>('');
   const [bio, setBio] = useState<string>('');
   const [cityOpen, setCityOpen] = useState(false);
@@ -38,10 +38,11 @@ export default function SetUpProfileScreen({ navigation }: any) {
   const ageNum = Number(age);
   const ageValid = Number.isFinite(ageNum) && ageNum >= 18 && ageNum <= 100;
   const genderValid = !!gender;
-  const genderPrefValid = genderPreferences.length > 0; // NEW: at least 1 selected
+  const genderPrefValid = genderPreferences.length > 0;
   const cityValid = city.trim().length > 0;
   const bioRemaining = 160 - bio.length;
 
+  // Bio is truly optional now - removed from canContinue check
   const canContinue = ageValid && genderValid && genderPrefValid && cityValid && !saving;
 
   const toggleGenderPref = (g: string) => {
@@ -60,7 +61,7 @@ export default function SetUpProfileScreen({ navigation }: any) {
       await FirestoreService.updateUserProfile(u.uid, {
         age: ageNum,
         gender,
-        genderPreferences, // NEW
+        genderPreferences,
         city: city.trim(),
         bio: bio.trim() || undefined,
         hasProfile: true,
@@ -102,7 +103,6 @@ export default function SetUpProfileScreen({ navigation }: any) {
           ))}
         </View>
 
-        {/* NEW: Gender preferences */}
         <Text style={[s.label, { marginTop: 16 }]}>
           genders i'd like to match <Text style={s.dim}>(pick at least 1)</Text>
         </Text>

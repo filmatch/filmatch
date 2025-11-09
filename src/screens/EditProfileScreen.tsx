@@ -66,7 +66,10 @@ export default function EditProfileScreen() {
         }
         const profile = await FirestoreService.getUserProfile(user.uid);
 
-        const interestedArray = Array.isArray((profile as any)?.interestedIn)
+        // Try both genderPreferences (new) and interestedIn (old) for backwards compatibility
+        const interestedArray = Array.isArray((profile as any)?.genderPreferences)
+          ? (profile as any).genderPreferences
+          : Array.isArray((profile as any)?.interestedIn)
           ? (profile as any).interestedIn
           : [];
 
@@ -194,7 +197,8 @@ export default function EditProfileScreen() {
       age: ageNum,
       city: draft.city.trim(),
       gender: draft.gender,
-      interestedIn: draft.interestedIn,
+      genderPreferences: draft.interestedIn, // Save as genderPreferences
+      interestedIn: draft.interestedIn, // Keep old field for backwards compatibility
       bio: draft.bio.trim() || undefined,
       photos: draft.photos,
     };
