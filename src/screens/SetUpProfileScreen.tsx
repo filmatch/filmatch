@@ -42,7 +42,6 @@ export default function SetUpProfileScreen({ navigation }: any) {
   const cityValid = city.trim().length > 0;
   const bioRemaining = 160 - bio.length;
 
-  // Bio is truly optional now - removed from canContinue check
   const canContinue = ageValid && genderValid && genderPrefValid && cityValid && !saving;
 
   const toggleGenderPref = (g: string) => {
@@ -64,14 +63,21 @@ export default function SetUpProfileScreen({ navigation }: any) {
         return;
       }
       await FirestoreService.createUserProfileIfMissing(u.uid);
-      await FirestoreService.updateUserProfile(u.uid, {
+      
+      const profileData: any = {
         age: ageNum,
         gender,
         genderPreferences,
         city: city.trim(),
-        bio: bio.trim() || undefined,
         hasProfile: true,
-      });
+      };
+      
+      // Only add bio if it has content
+      if (bio.trim()) {
+        profileData.bio = bio.trim();
+      }
+      
+      await FirestoreService.updateUserProfile(u.uid, profileData);
       navigation.replace('EditPreferences');
     } catch (error) {
       console.error('Error saving profile:', error);
