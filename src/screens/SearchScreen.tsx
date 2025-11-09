@@ -98,7 +98,7 @@ export default function SearchScreen() {
         TMDbService.getTrendingMovies('week'),
         TMDbService.getTopRatedMovies(),
       ]);
-      setTrendingMovies((trending ?? []).slice(0, 20));
+      setTrendingMovies((trending ?? []).slice(0, 21));
       setTopRatedMovies((topRated ?? []).slice(0, 42));
     } catch {
       Alert.alert('error', 'failed to load movies.');
@@ -157,33 +157,7 @@ export default function SearchScreen() {
   const openMovie = (m: Movie) => navigation.navigate('MovieDetail', { movie: m });
 
   // Helper to pad grid data to complete rows of 3
- const getGridData = (data: Movie[]) => {
-  const remainder = data.length % 3;
-  if (remainder === 0) return data;
-  
-  const placeholdersNeeded = 3 - remainder;
-  const placeholders = Array(placeholdersNeeded).fill(null).map((_, i) => ({
-    id: `placeholder-${i}-${Date.now()}`,
-    title: '',
-    poster_path: null,
-    backdrop_path: null,
-    release_date: '',
-    year: null,
-    vote_average: null,
-    vote_count: 0,
-    overview: '',
-    genres: [],
-    tmdb_id: 0,
-    popularity: 0,
-    original_language: '',
-    original_title: '',
-    adult: false,
-    video: false,
-  } as unknown as Movie));
-  
-  return [...data, ...placeholders];
-};
-
+ 
   const renderDiscoverCard = ({ item }: { item: Movie }) => {
     // Render invisible placeholder for grid alignment
     if (item.id.toString().startsWith('placeholder')) {
@@ -304,7 +278,7 @@ export default function SearchScreen() {
               {searchResults.length} result{searchResults.length !== 1 ? 's' : ''} found
             </Text>
             <FlatList
-              data={getGridData(searchResults)}
+              data={searchResults}
               keyExtractor={(i) => `search-${i.id}`}
               renderItem={renderSearchCard}
               numColumns={3}
@@ -330,7 +304,7 @@ export default function SearchScreen() {
       <StatusBar style="light" />
 
       <FlatList
-        data={getGridData(topRatedMovies)}
+        data={topRatedMovies}
         keyExtractor={(i) => `toprated-${i.id}`}
         numColumns={3}
         renderItem={renderDiscoverCard}
