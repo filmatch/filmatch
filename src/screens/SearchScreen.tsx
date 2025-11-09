@@ -156,55 +156,97 @@ export default function SearchScreen() {
 
   const openMovie = (m: Movie) => navigation.navigate('MovieDetail', { movie: m });
 
-  const renderDiscoverCard = ({ item }: { item: Movie }) => (
-    <TouchableOpacity style={styles.discoverCard} onPress={() => openMovie(item)}>
-      {item.poster_path ? (
-        <Image
-          source={{ uri: `https://image.tmdb.org/t/p/w342${item.poster_path}` }}
-          style={styles.cardPoster}
-          resizeMode="cover"
-        />
-      ) : (
-        <View style={styles.posterFallback}>
-          <PosterPlaceholder />
-        </View>
-      )}
-      <View style={styles.cardInfo}>
-        <Text style={styles.cardTitle} numberOfLines={2}>{item.title}</Text>
-        <Text style={styles.cardYear}>
-          {item.year || (item.release_date ? new Date(item.release_date).getFullYear() : '')}
-        </Text>
-      </View>
-    </TouchableOpacity>
-  );
+  // Helper to pad grid data to complete rows of 3
+ const getGridData = (data: Movie[]) => {
+  const remainder = data.length % 3;
+  if (remainder === 0) return data;
+  
+  const placeholdersNeeded = 3 - remainder;
+  const placeholders = Array(placeholdersNeeded).fill(null).map((_, i) => ({
+    id: `placeholder-${i}-${Date.now()}`,
+    title: '',
+    poster_path: null,
+    backdrop_path: null,
+    release_date: '',
+    year: null,
+    vote_average: null,
+    vote_count: 0,
+    overview: '',
+    genres: [],
+    tmdb_id: 0,
+    popularity: 0,
+    original_language: '',
+    original_title: '',
+    adult: false,
+    video: false,
+  } as unknown as Movie));
+  
+  return [...data, ...placeholders];
+};
 
-  const renderSearchCard = ({ item }: { item: Movie }) => (
-    <TouchableOpacity style={styles.searchCard} onPress={() => openMovie(item)}>
-      {item.poster_path ? (
-        <Image
-          source={{ uri: `https://image.tmdb.org/t/p/w342${item.poster_path}` }}
-          style={styles.searchCardPoster}
-          resizeMode="cover"
-        />
-      ) : (
-        <View style={styles.searchPosterFallback}>
-          <PosterPlaceholder />
-        </View>
-      )}
-      <View style={styles.searchCardInfo}>
-        <Text style={styles.searchCardTitle} numberOfLines={2}>{item.title}</Text>
-        <Text style={styles.searchCardYear}>
-          {item.year || (item.release_date ? new Date(item.release_date).getFullYear() : 'N/A')}
-        </Text>
-        <View style={[styles.ratingContainer, { flexDirection: 'row', alignItems: 'center' }]}>
-          <Dot />
-          <Text style={styles.searchCardRating}>
-            {item.vote_average ? item.vote_average?.toFixed(1) : 'N/A'}
+  const renderDiscoverCard = ({ item }: { item: Movie }) => {
+    // Render invisible placeholder for grid alignment
+    if (item.id.toString().startsWith('placeholder')) {
+      return <View style={{ width: CARD_W }} />;
+    }
+
+    return (
+      <TouchableOpacity style={styles.discoverCard} onPress={() => openMovie(item)}>
+        {item.poster_path ? (
+          <Image
+            source={{ uri: `https://image.tmdb.org/t/p/w342${item.poster_path}` }}
+            style={styles.cardPoster}
+            resizeMode="cover"
+          />
+        ) : (
+          <View style={styles.posterFallback}>
+            <PosterPlaceholder />
+          </View>
+        )}
+        <View style={styles.cardInfo}>
+          <Text style={styles.cardTitle} numberOfLines={2}>{item.title}</Text>
+          <Text style={styles.cardYear}>
+            {item.year || (item.release_date ? new Date(item.release_date).getFullYear() : '')}
           </Text>
         </View>
-      </View>
-    </TouchableOpacity>
-  );
+      </TouchableOpacity>
+    );
+  };
+
+  const renderSearchCard = ({ item }: { item: Movie }) => {
+    // Render invisible placeholder for grid alignment
+    if (item.id.toString().startsWith('placeholder')) {
+      return <View style={{ width: CARD_W }} />;
+    }
+
+    return (
+      <TouchableOpacity style={styles.searchCard} onPress={() => openMovie(item)}>
+        {item.poster_path ? (
+          <Image
+            source={{ uri: `https://image.tmdb.org/t/p/w342${item.poster_path}` }}
+            style={styles.searchCardPoster}
+            resizeMode="cover"
+          />
+        ) : (
+          <View style={styles.searchPosterFallback}>
+            <PosterPlaceholder />
+          </View>
+        )}
+        <View style={styles.searchCardInfo}>
+          <Text style={styles.searchCardTitle} numberOfLines={2}>{item.title}</Text>
+          <Text style={styles.searchCardYear}>
+            {item.year || (item.release_date ? new Date(item.release_date).getFullYear() : 'N/A')}
+          </Text>
+          <View style={[styles.ratingContainer, { flexDirection: 'row', alignItems: 'center' }]}>
+            <Dot />
+            <Text style={styles.searchCardRating}>
+              {item.vote_average ? item.vote_average?.toFixed(1) : 'N/A'}
+            </Text>
+          </View>
+        </View>
+      </TouchableOpacity>
+    );
+  };
 
   const renderTrendingCard = ({ item }: { item: Movie }) => (
     <TouchableOpacity style={styles.trendingCard} onPress={() => openMovie(item)}>
@@ -262,7 +304,7 @@ export default function SearchScreen() {
               {searchResults.length} result{searchResults.length !== 1 ? 's' : ''} found
             </Text>
             <FlatList
-              data={searchResults}
+              data={getGridData(searchResults)}
               keyExtractor={(i) => `search-${i.id}`}
               renderItem={renderSearchCard}
               numColumns={3}
@@ -288,7 +330,7 @@ export default function SearchScreen() {
       <StatusBar style="light" />
 
       <FlatList
-        data={topRatedMovies}
+        data={getGridData(topRatedMovies)}
         keyExtractor={(i) => `toprated-${i.id}`}
         numColumns={3}
         renderItem={renderDiscoverCard}
