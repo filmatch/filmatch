@@ -98,8 +98,8 @@ export default function SearchScreen() {
         TMDbService.getTrendingMovies('week'),
         TMDbService.getTopRatedMovies(),
       ]);
-      setTrendingMovies((trending ?? []).slice(0, 21));
-      setTopRatedMovies((topRated ?? []).slice(0, 42));
+      setTrendingMovies((trending ?? []).slice(0, 20));
+      setTopRatedMovies((topRated ?? []).slice(0, 21));
     } catch {
       Alert.alert('error', 'failed to load movies.');
     } finally {
