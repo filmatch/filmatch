@@ -29,19 +29,24 @@ export default function AuthNavigator() {
 
   const needsVerification = (u: User) =>
     u.providerData?.some((p) => p?.providerId === 'password') && !u.emailVerified;
-
-  const routeAfterAuth = async (u: User) => {
-    if (REQUIRE_VERIFIED && needsVerification(u)) {
-      setState('verify');
-      return;
-    }
-    try {
-      const has = await FirestoreService.hasCompletedOnboarding(u.uid);
-      setState(has ? 'authenticated' : 'onboarding');
-    } catch {
-      setState('onboarding');
-    }
-  };
+const routeAfterAuth = async (u: User) => {
+  if (REQUIRE_VERIFIED && needsVerification(u)) {
+    setState('verify');
+    return;
+  }
+  try {
+    // First, ensure the user profile exists
+    await FirestoreService.createUserProfileIfMissing(u.uid);
+    
+    // Then check if onboarding is complete
+    const has = await FirestoreService.hasCompletedOnboarding(u.uid);
+    setState(has ? 'authenticated' : 'onboarding');
+  } catch (error) {
+    console.error('Error in routeAfterAuth:', error);
+    // If there's an error, send them to onboarding to be safe
+    setState('onboarding');
+  }
+};
 
   useEffect(() => {
     const unsub = FirebaseAuthService.onAuthStateChanged(async (u) => {

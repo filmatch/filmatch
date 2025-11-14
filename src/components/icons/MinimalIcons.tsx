@@ -8,7 +8,7 @@ type Props = { active?: boolean; color?: string };
 
 // One place to tweak thickness for ALL icons
 const STROKE = 2; // try 1.8, 2, or 2.2 if you need a hairline adjustment
-
+export { BellIcon } from './BellIcon';
 /* SEARCH — balanced lens + handle, centered */
 export function SearchIcon({ active, color }: Props) {
   const c = color ?? (active ? ACTIVE : INACTIVE);

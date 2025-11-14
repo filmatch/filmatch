@@ -247,7 +247,7 @@ export default function EditPreferencesScreen() {
       ...prev,
       { id: `fav_${movie.id}_${Date.now()}`, title: movie.title, year: movie.year },
     ]);
-    setSearchQuery('');
+   
   };
 
   const removeFavorite = (id: string) => setFavorites((prev) => prev.filter((f) => f.id !== id));
@@ -277,7 +277,6 @@ export default function EditPreferencesScreen() {
     setShowRatingModal(false);
     setMovieToRate(null);
     setTempRating(0);
-    setSearchQuery('');
   };
 
   const removeRecentWatch = (id: string) => setRecentWatches((prev) => prev.filter((w) => w.id !== id));

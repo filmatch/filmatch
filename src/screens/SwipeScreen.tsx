@@ -17,6 +17,10 @@ import {
 import { StatusBar } from "expo-status-bar";
 import { FirebaseAuthService } from '../services/FirebaseAuthService';
 import { FirestoreService } from '../services/FirestoreService';
+import { MatchingService } from '../services/MatchingService';
+import { SwipeService } from '../services/SwipeService';
+import { NotificationService } from '../services/NotificationService';
+import type { UserProfile } from '../types';
 
 const { width, height } = Dimensions.get("window");
 const CARD_W = Math.min(width * 0.92, 420);
@@ -25,104 +29,20 @@ const CARD_H = Math.min(height * 0.78, 720);
 type Poster = { id: string; title: string; poster?: string; year?: number };
 type Recent = { id: string; title: string; year?: number };
 type GenreRating = { genre: string; rating: number };
+
 type MatchProfile = {
-  id: string;
+  uid: string;
   displayName: string;
   age?: number;
-  location?: string;
-  gender?: string; // NEW: user's gender
+  city?: string;
+  gender?: string;
   compatibility: number;
   bio?: string;
   photos: string[];
   favorites: Poster[];
   recentWatches: Recent[];
-  favGenres?: string[];
   genreRatings?: GenreRating[];
 };
-
-// Mock data - replace with Firestore
-const PROFILES: MatchProfile[] = [
-  {
-    id: "1",
-    displayName: "alex",
-    age: 27,
-    location: "istanbul",
-    gender: "male", // NEW
-    compatibility: 93,
-    bio: "cinephile into long takes, synth scores, and mind-benders.",
-    photos: [
-      "https://images.unsplash.com/photo-1529626455594-4ff0802cfb7e?q=80&w=900&auto=format&fit=crop",
-      "https://images.unsplash.com/photo-1527980965255-d3b416303d12?q=80&w=900&auto=format&fit=crop",
-      "https://images.unsplash.com/photo-1524504388940-b1c1722653e1?q=80&w=900&auto=format&fit=crop",
-    ],
-    favorites: [
-      { id: "br2049", title: "blade runner 2049", year: 2017, poster: "https://image.tmdb.org/t/p/w185/aMpyrCizvSg3hZqvQkWpMAHfuO9.jpg" },
-      { id: "her", title: "her", year: 2013, poster: "https://image.tmdb.org/t/p/w185/eCOtqtfvn7mxGl6nfmq4b1exJRc.jpg" },
-      { id: "dune2", title: "dune: part two", year: 2024, poster: "https://image.tmdb.org/t/p/w185/1pdfLvkbY9ohJlCjQH2CZjjYVvJ.jpg" },
-      { id: "arrival", title: "arrival", year: 2016, poster: "https://image.tmdb.org/t/p/w185/x2FJsf1ElAgr63Y3PNPtJrcmpoe.jpg" },
-    ],
-    recentWatches: [
-      { id: "enemy", title: "enemy", year: 2013 },
-      { id: "drive", title: "drive", year: 2011 },
-    ],
-    genreRatings: [
-      { genre: "sci-fi", rating: 5 },
-      { genre: "drama", rating: 5 },
-      { genre: "thriller", rating: 4 },
-      { genre: "romance", rating: 2 },
-    ],
-  },
-  {
-    id: "2",
-    displayName: "mia",
-    age: 25,
-    location: "ankara",
-    gender: "female", // NEW
-    compatibility: 88,
-    bio: "dialogue-driven dramas, subtle romance, and festival gems.",
-    photos: [
-      "https://images.unsplash.com/photo-1517841905240-472988babdf9?q=80&w=900&auto=format&fit=crop",
-      "https://images.unsplash.com/photo-1554151228-14d9def656e4?q=80&w=900&auto=format&fit=crop",
-    ],
-    favorites: [
-      { id: "moonlight", title: "moonlight", year: 2016, poster: "https://image.tmdb.org/t/p/w185/4911T5FbJ9eD2wjuKxN0VOJYhpm.jpg" },
-      { id: "eeaao", title: "eeaao", year: 2022, poster: "https://image.tmdb.org/t/p/w185/w3LxiVYdWWRvEVdn5RYq6jIqkb1.jpg" },
-      { id: "callme", title: "call me by your name", year: 2017, poster: "https://image.tmdb.org/t/p/w185/oPqF4KJfVv9qGZo4PM5XgS5aXoa.jpg" },
-      { id: "before", title: "before sunrise", year: 1995, poster: "https://image.tmdb.org/t/p/w185/bmtnxH4ihDZVx8bV2G7fX7nT2jN.jpg" },
-    ],
-    recentWatches: [{ id: "pastlives", title: "past lives", year: 2023 }],
-    genreRatings: [
-      { genre: "drama", rating: 5 },
-      { genre: "romance", rating: 5 },
-      { genre: "indie", rating: 4 },
-      { genre: "sci-fi", rating: 1 },
-    ],
-  },
-  {
-    id: "3",
-    displayName: "sam",
-    age: 29,
-    location: "izmir",
-    gender: "nonbinary", // NEW
-    compatibility: 85,
-    bio: "indie films and experimental cinema.",
-    photos: [
-      "https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?q=80&w=900&auto=format&fit=crop",
-    ],
-    favorites: [
-      { id: "mulholland", title: "mulholland drive", year: 2001, poster: "https://image.tmdb.org/t/p/w185/tVxGt7uffLVhIIcwuldXOMpFBPX.jpg" },
-      { id: "synecdoche", title: "synecdoche, new york", year: 2008, poster: "https://image.tmdb.org/t/p/w185/oqKiLLdK5v0JSTqtLqqUfxnGKCN.jpg" },
-      { id: "holy", title: "holy motors", year: 2012, poster: "https://image.tmdb.org/t/p/w185/qCqUYMzhozwKRSsYYZnAfNbBOPK.jpg" },
-      { id: "enter", title: "enter the void", year: 2009, poster: "https://image.tmdb.org/t/p/w185/9HVuvUlgGaGnWq0sVGyZ8dCm2zE.jpg" },
-    ],
-    recentWatches: [{ id: "beau", title: "beau is afraid", year: 2023 }],
-    genreRatings: [
-      { genre: "experimental", rating: 5 },
-      { genre: "drama", rating: 4 },
-      { genre: "horror", rating: 3 },
-    ],
-  },
-];
 
 const Chip = ({ text }: { text: string }) => (
   <View style={styles.chip}>
@@ -147,34 +67,86 @@ const PosterTile = ({ p }: { p: Poster }) => (
 
 export default function SwipeScreen() {
   const [loading, setLoading] = useState(true);
-  const [userGenderPrefs, setUserGenderPrefs] = useState<string[]>([]);
+  const [profiles, setProfiles] = useState<MatchProfile[]>([]);
   const [idx, setIdx] = useState(0);
+  const [error, setError] = useState<string>('');
+  const [currentUserProfile, setCurrentUserProfile] = useState<UserProfile | null>(null);
+  const [swiping, setSwiping] = useState(false);
+  const [showMatchIndicator, setShowMatchIndicator] = useState(false);
 
-  // Filter profiles based on gender preferences
-  const filteredProfiles = useMemo(() => {
-    if (!userGenderPrefs.length) return PROFILES;
-    return PROFILES.filter(profile => 
-      profile.gender && userGenderPrefs.includes(profile.gender)
-    );
-  }, [userGenderPrefs]);
-
-  const profile = filteredProfiles[idx % filteredProfiles.length];
+  const profile = profiles[idx];
 
   useEffect(() => {
-    loadUserPreferences();
+    loadMatches();
   }, []);
 
-  const loadUserPreferences = async () => {
+  const loadMatches = async () => {
     try {
+      setLoading(true);
+      setError('');
+
       const currentUser = FirebaseAuthService.getCurrentUser();
-      if (!currentUser) return;
-      
-      const userProfile = await FirestoreService.getUserProfile(currentUser.uid);
-      if (userProfile?.genderPreferences) {
-        setUserGenderPrefs(userProfile.genderPreferences);
+      if (!currentUser) {
+        setError('not logged in');
+        return;
       }
-    } catch (error) {
-      console.error('error loading gender preferences:', error);
+
+      const userProfile = await FirestoreService.getUserProfile(currentUser.uid);
+      if (!userProfile) {
+        setError('profile not found');
+        return;
+      }
+
+      setCurrentUserProfile(userProfile);
+
+      if (!userProfile.genderPreferences || userProfile.genderPreferences.length === 0) {
+        setError('no gender preferences set');
+        return;
+      }
+
+      const potentialMatches = await MatchingService.getPotentialMatches(
+        currentUser.uid,
+        userProfile.genderPreferences,
+        20
+      );
+
+      if (potentialMatches.length === 0) {
+        setError('no matches found');
+        return;
+      }
+
+      const matchProfiles: MatchProfile[] = potentialMatches.map(match => {
+        const compatibility = MatchingService.calculateCompatibility(userProfile, match);
+        
+        return {
+          uid: match.uid,
+          displayName: match.displayName || 'anonymous',
+          age: match.age,
+          city: match.city,
+          gender: match.gender,
+          compatibility,
+          bio: match.bio,
+          photos: match.photos || [],
+          favorites: (match.favorites || []).map(f => ({
+            id: String(f.id),
+            title: f.title,
+            year: f.year,
+            poster: (f as any).poster,
+          })),
+          recentWatches: (match.recentWatches || []).map(r => ({
+            id: String(r.id),
+            title: r.title,
+            year: r.year,
+          })),
+          genreRatings: match.genreRatings || [],
+        };
+      });
+
+      matchProfiles.sort((a, b) => b.compatibility - a.compatibility);
+      setProfiles(matchProfiles);
+    } catch (err) {
+      console.error('error loading matches:', err);
+      setError('failed to load matches');
     } finally {
       setLoading(false);
     }
@@ -188,7 +160,7 @@ export default function SwipeScreen() {
         .slice(0, 5)
         .map((g) => g.genre);
     }
-    return profile?.favGenres ?? [];
+    return [];
   }, [profile]);
 
   const pan = useRef(new Animated.ValueXY()).current;
@@ -209,32 +181,109 @@ export default function SwipeScreen() {
             Animated.parallel([
               Animated.timing(pan.x, { toValue: dir * width, duration: 220, useNativeDriver: true }),
               Animated.timing(fade, { toValue: 0, duration: 220, useNativeDriver: true }),
-            ]).start(() => nextCard());
+            ]).start(() => handleSwipe(dir));
           } else {
             Animated.spring(pan, { toValue: { x: 0, y: 0 }, useNativeDriver: true }).start();
           }
         },
       }),
-    []
+    [profile]
   );
+
+  const handleSwipe = async (direction: 1 | -1) => {
+    if (swiping || !profile) return;
+    
+    setSwiping(true);
+
+    const currentUser = FirebaseAuthService.getCurrentUser();
+    if (!currentUser || !currentUserProfile) {
+      console.log('❌ No current user or profile');
+      setSwiping(false);
+      nextCard();
+      return;
+    }
+
+    try {
+      if (direction === 1) {
+        // LIKE - Record and check for match
+        console.log('👍 Recording like...');
+        const isMatch = await SwipeService.recordLike(currentUser.uid, profile.uid);
+        
+        if (isMatch) {
+          console.log('🎉 IT\'S A MATCH!');
+          
+          // Show brief visual indicator
+          setShowMatchIndicator(true);
+          setTimeout(() => setShowMatchIndicator(false), 2000);
+          
+          // Create match notifications for BOTH users
+          console.log('📤 Creating match notifications...');
+          try {
+            const sortedIds = [currentUser.uid, profile.uid].sort();
+            const chatId = `chat_${sortedIds[0]}_${sortedIds[1]}`;
+            
+            console.log('📤 Notification params:', {
+              user1: currentUser.uid,
+              user1Name: currentUserProfile.displayName,
+              user2: profile.uid,
+              user2Name: profile.displayName,
+              chatId,
+            });
+            
+            await NotificationService.createMatchNotifications(
+              currentUser.uid,
+              currentUserProfile.displayName || 'Someone',
+              currentUserProfile.photos?.[0],
+              profile.uid,
+              profile.displayName,
+              profile.photos?.[0],
+              chatId
+            );
+            
+            console.log('✅ Match notifications sent to both users');
+          } catch (notifError) {
+            console.error('❌ Error sending match notifications:', notifError);
+            console.error('❌ Full error:', JSON.stringify(notifError));
+          }
+        } else {
+          console.log('👍 Like recorded (not a match yet)');
+        }
+      } else {
+        // PASS - Just record it
+        console.log('👎 Recording pass...');
+        await SwipeService.recordPass(currentUser.uid, profile.uid);
+      }
+    } catch (error) {
+      console.error('❌ Error handling swipe:', error);
+    } finally {
+      setSwiping(false);
+      nextCard();
+    }
+  };
 
   const nextCard = () => {
     pan.setValue({ x: 0, y: 0 });
     fade.setValue(1);
-    setIdx((i) => (i + 1) % filteredProfiles.length);
+    
+    if (idx + 1 >= profiles.length) {
+      setIdx(0);
+    } else {
+      setIdx((i) => i + 1);
+    }
   };
 
   const swipeOut = (dir: 1 | -1) => {
     Animated.parallel([
       Animated.timing(pan.x, { toValue: dir * width, duration: 220, useNativeDriver: true }),
       Animated.timing(fade, { toValue: 0, duration: 220, useNativeDriver: true }),
-    ]).start(nextCard);
+    ]).start(() => handleSwipe(dir));
   };
-  const like = () => swipeOut(1);
-  const pass = () => swipeOut(-1);
+  
+  const like = () => !swiping && swipeOut(1);
+  const pass = () => !swiping && swipeOut(-1);
 
   const renderPhoto = ({ item }: { item: string }) => (
-    <Image source={{ uri: item }} style={styles.photo} />
+    <Image source={{ uri: item }} style={styles.photo} resizeMode="cover" />
   );
 
   if (loading) {
@@ -243,31 +292,56 @@ export default function SwipeScreen() {
         <StatusBar style="light" />
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#F0E4C1" />
-          <Text style={styles.loadingText}>loading matches...</Text>
+          <Text style={styles.loadingText}>finding your matches...</Text>
         </View>
       </SafeAreaView>
     );
   }
 
-  if (!filteredProfiles.length) {
+  if (error) {
     return (
       <SafeAreaView style={styles.screen}>
         <StatusBar style="light" />
         <View style={styles.loadingContainer}>
-          <Text style={styles.noMatchesTitle}>no matches found</Text>
-          <Text style={styles.noMatchesText}>
-            try updating your gender preferences in settings
-          </Text>
+          <Text style={styles.noMatchesTitle}>{error}</Text>
+          {error === 'no gender preferences set' && (
+            <Text style={styles.noMatchesText}>update your preferences in settings</Text>
+          )}
+          {error === 'no matches found' && (
+            <Text style={styles.noMatchesText}>check back later for new users</Text>
+          )}
+          <TouchableOpacity style={styles.retryButton} onPress={loadMatches}>
+            <Text style={styles.retryButtonText}>retry</Text>
+          </TouchableOpacity>
         </View>
       </SafeAreaView>
     );
   }
 
-  if (!profile) return null;
+  if (!profile) {
+    return (
+      <SafeAreaView style={styles.screen}>
+        <StatusBar style="light" />
+        <View style={styles.loadingContainer}>
+          <Text style={styles.noMatchesTitle}>no more profiles</Text>
+          <Text style={styles.noMatchesText}>check back later</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.screen}>
       <StatusBar style="light" />
+      
+      {/* Match Indicator */}
+      {showMatchIndicator && (
+        <View style={styles.matchIndicator}>
+          <Text style={styles.matchIndicatorText}>🎉 it's a match!</Text>
+          <Text style={styles.matchIndicatorSubtext}>check your matches tab</Text>
+        </View>
+      )}
+
       <View style={styles.centerWrap}>
         <Animated.View
           style={[
@@ -288,43 +362,61 @@ export default function SwipeScreen() {
           ]}
           {...panResponder.panHandlers}
         >
+          {/* Header */}
           <View style={styles.headerRow}>
             <View style={{ flex: 1, paddingRight: 8 }}>
               <Text style={styles.name}>
                 {profile.displayName}
                 {profile.age ? `, ${profile.age}` : ""}
-                {profile.location ? ` • ${profile.location}` : ""}
+                {profile.city ? ` • ${profile.city}` : ""}
               </Text>
             </View>
             <View style={styles.compBadge}>
               <Text style={styles.compText}>{profile.compatibility}%</Text>
-              <Text style={styles.compCaption}>compatibility</Text>
+              <Text style={styles.compCaption}>match</Text>
             </View>
           </View>
 
+          {/* Bio */}
           {profile.bio ? (
             <Text style={styles.bio} numberOfLines={3}>
               {profile.bio}
             </Text>
           ) : null}
 
-          {profile.photos?.length ? (
-            <>
-              <FlatList
-                data={profile.photos}
-                keyExtractor={(u, i) => `${u}-${i}`}
-                renderItem={renderPhoto}
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                pagingEnabled
-                snapToAlignment="center"
-                decelerationRate="fast"
-                contentContainerStyle={{ gap: 10, paddingVertical: 4 }}
-              />
-            </>
-          ) : null}
+          {/* USER PHOTOS */}
+          {profile.photos?.length > 0 ? (
+            <FlatList
+              data={profile.photos}
+              keyExtractor={(u, i) => `${u}-${i}`}
+              renderItem={renderPhoto}
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              pagingEnabled
+              snapToAlignment="center"
+              decelerationRate="fast"
+              contentContainerStyle={{ gap: 10, paddingVertical: 8 }}
+            />
+          ) : (
+            <View style={styles.noPhotosPlaceholder}>
+              <Text style={styles.noPhotosText}>no photos added</Text>
+            </View>
+          )}
 
-          {profile.favorites?.length ? (
+          {/* Favorite genres */}
+          {topGenres.length > 0 && (
+            <>
+              <Text style={styles.sectionTitle}>favorite genres</Text>
+              <View style={styles.genresWrap}>
+                {topGenres.map((g) => (
+                  <Chip key={g} text={g} />
+                ))}
+              </View>
+            </>
+          )}
+
+          {/* Favorite films */}
+          {profile.favorites?.length > 0 && (
             <>
               <Text style={styles.sectionTitle}>fav 4 films</Text>
               <View style={styles.posterRow}>
@@ -333,20 +425,10 @@ export default function SwipeScreen() {
                 ))}
               </View>
             </>
-          ) : null}
+          )}
 
-          {topGenres.length ? (
-            <>
-              <Text style={styles.sectionTitle}>fav genres</Text>
-              <View style={styles.genresWrap}>
-                {topGenres.map((g) => (
-                  <Chip key={g} text={g} />
-                ))}
-              </View>
-            </>
-          ) : null}
-
-          {profile.recentWatches?.length ? (
+          {/* Recent watches */}
+          {profile.recentWatches?.length > 0 && (
             <>
               <Text style={styles.sectionTitle}>recents</Text>
               <ScrollView
@@ -359,13 +441,22 @@ export default function SwipeScreen() {
                 ))}
               </ScrollView>
             </>
-          ) : null}
+          )}
 
+          {/* Actions */}
           <View style={styles.actionsRow}>
-            <TouchableOpacity style={[styles.actionBtn, styles.passBtn]} onPress={pass}>
+            <TouchableOpacity 
+              style={[styles.actionBtn, styles.passBtn, swiping && { opacity: 0.5 }]} 
+              onPress={pass}
+              disabled={swiping}
+            >
               <Text style={styles.actionText}>pass</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={[styles.actionBtn, styles.likeBtn]} onPress={like}>
+            <TouchableOpacity 
+              style={[styles.actionBtn, styles.likeBtn, swiping && { opacity: 0.5 }]} 
+              onPress={like}
+              disabled={swiping}
+            >
               <Text style={styles.actionText}>like</Text>
             </TouchableOpacity>
           </View>
@@ -379,10 +470,49 @@ const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: "#111C2A" },
   centerWrap: { flex: 1, alignItems: "center", justifyContent: "center" },
 
+  matchIndicator: {
+    position: 'absolute',
+    top: 60,
+    left: 20,
+    right: 20,
+    backgroundColor: '#511619',
+    borderRadius: 16,
+    padding: 16,
+    zIndex: 1000,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(240,228,193,0.3)',
+  },
+  matchIndicatorText: {
+    color: '#F0E4C1',
+    fontSize: 18,
+    fontWeight: '800',
+    textTransform: 'lowercase',
+    marginBottom: 4,
+  },
+  matchIndicatorSubtext: {
+    color: 'rgba(240,228,193,0.8)',
+    fontSize: 14,
+    textTransform: 'lowercase',
+  },
+
   loadingContainer: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 40 },
   loadingText: { color: '#F0E4C1', opacity: 0.7, marginTop: 12, textTransform: 'lowercase' },
   noMatchesTitle: { color: '#F0E4C1', fontSize: 24, fontWeight: 'bold', textTransform: 'lowercase', marginBottom: 12 },
-  noMatchesText: { color: 'rgba(240,228,193,0.7)', textAlign: 'center', textTransform: 'lowercase' },
+  noMatchesText: { color: 'rgba(240,228,193,0.7)', textAlign: 'center', textTransform: 'lowercase', marginBottom: 20 },
+
+  retryButton: {
+    backgroundColor: '#511619',
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 12,
+    marginTop: 12,
+  },
+  retryButtonText: {
+    color: '#F0E4C1',
+    fontWeight: '700',
+    textTransform: 'lowercase',
+  },
 
   card: {
     width: CARD_W,
@@ -394,7 +524,7 @@ const styles = StyleSheet.create({
     padding: 18,
   },
 
-  headerRow: { flexDirection: "row", alignItems: "center" },
+  headerRow: { flexDirection: "row", alignItems: "center", marginBottom: 8 },
   name: { color: "#F0E4C1", fontSize: 22, fontWeight: "800", textTransform: "lowercase" },
 
   compBadge: {
@@ -407,38 +537,52 @@ const styles = StyleSheet.create({
     minWidth: 86,
   },
   compText: { color: "#F0E4C1", fontSize: 28, fontWeight: "900" },
-  compCaption: { color: "#F0E4C1", opacity: 0.85, fontSize: 10, marginTop: -2 },
+  compCaption: { color: "#F0E4C1", opacity: 0.85, fontSize: 10, marginTop: -2, textTransform: "lowercase" },
 
   bio: {
     color: "#F0E4C1",
     opacity: 0.95,
-    marginTop: 10,
-    marginBottom: 8,
+    marginBottom: 12,
     lineHeight: 20,
   },
 
   sectionTitle: {
     color: "#F0E4C1",
-    fontSize: 14,
-    fontWeight: "800",
-    marginTop: 14,
+    fontSize: 13,
+    fontWeight: "700",
+    marginTop: 12,
     marginBottom: 8,
     textTransform: "lowercase",
   },
 
   photo: {
     width: CARD_W - 36,
-    height: 220,
+    height: 280,
     borderRadius: 14,
     backgroundColor: "#0b1220",
   },
 
-  posterRow: { flexDirection: "row", gap: 10 },
-  posterTile: { width: 72 },
-  posterImg: { width: 72, height: 100, borderRadius: 8, backgroundColor: "rgba(240,228,193,0.1)" },
+  noPhotosPlaceholder: {
+    width: CARD_W - 36,
+    height: 200,
+    borderRadius: 14,
+    backgroundColor: "rgba(240,228,193,0.08)",
+    alignItems: "center",
+    justifyContent: "center",
+    marginVertical: 8,
+  },
+  noPhotosText: {
+    color: "rgba(240,228,193,0.5)",
+    fontSize: 14,
+    textTransform: "lowercase",
+  },
+
+  posterRow: { flexDirection: "row", gap: 8 },
+  posterTile: { width: 60 },
+  posterImg: { width: 60, height: 85, borderRadius: 6, backgroundColor: "rgba(240,228,193,0.1)" },
   posterPlaceholder: { alignItems: "center", justifyContent: "center" },
-  posterPlaceholderText: { color: "rgba(240,228,193,0.5)", fontSize: 10, textAlign: "center" },
-  posterCaption: { color: "#F0E4C1", fontSize: 11, marginTop: 4 },
+  posterPlaceholderText: { color: "rgba(240,228,193,0.5)", fontSize: 9, textAlign: "center" },
+  posterCaption: { color: "#F0E4C1", fontSize: 10, marginTop: 4 },
 
   genresWrap: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   chip: {

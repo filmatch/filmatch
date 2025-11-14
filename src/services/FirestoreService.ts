@@ -39,8 +39,8 @@ export class FirestoreService {
       { merge: true }
     );
   }
-
-  static async createUserProfileIfMissing(uid: string) {
+static async createUserProfileIfMissing(uid: string) {
+  try {
     const ref = this.userRef(uid);
     const snap = await getDoc(ref);
     if (!snap.exists()) {
@@ -53,9 +53,17 @@ export class FirestoreService {
         favorites: [],
         recentWatches: [],
         genreRatings: [],
+        genderPreferences: [], // Add this
       } as UserProfile);
+      console.log('Created new user profile for:', uid);
+    } else {
+      console.log('User profile already exists for:', uid);
     }
+  } catch (error) {
+    console.error('Error creating user profile:', error);
+    throw error; // Re-throw so we can handle it in AuthNavigator
   }
+}
 
   static async hasCompletedOnboarding(uid: string): Promise<boolean> {
     const prof = await this.getUserProfile(uid);
@@ -65,7 +73,7 @@ export class FirestoreService {
       prof.hasProfile ||
       typeof prof.age === 'number' ||
       !!prof.city ||
-      (Array.isArray(prof.pronouns) && prof.pronouns.length > 0);
+      (Array.isArray(prof.gender) && prof.gender.length > 0);
 
     const hasPrefs =
       prof.hasPreferences ||

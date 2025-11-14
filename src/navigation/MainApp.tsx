@@ -5,6 +5,7 @@ import { createStackNavigator } from '@react-navigation/stack';
 import { View, Text, TouchableOpacity } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import NotificationsScreen from '../screens/NotificationsScreen';
 import SearchScreen from '../screens/SearchScreen';
 import MovieDetailScreen from '../screens/MovieDetailScreen';
 import SwipeScreen from '../screens/SwipeScreen';
@@ -16,7 +17,7 @@ import ChatScreen from '../screens/ChatScreen';
 import SetUpProfileScreen from '../screens/SetUpProfileScreen';
 
 import { Movie } from '../types';
-import { SearchIcon, HeartIcon, ChatIcon, ProfileIcon } from '../components/icons/MinimalIcons';
+import { SearchIcon, HeartIcon, ChatIcon, ProfileIcon, BellIcon} from '../components/icons/MinimalIcons';
 
 export type RootStackParamList = {
   MainTabs: undefined;
@@ -41,6 +42,8 @@ function IconFor(routeName: string, active: boolean) {
       return <SearchIcon {...props} />;
     case 'match':
       return <HeartIcon {...props} />;
+    case 'notifications':
+      return <BellIcon {...props} />;
     case 'matches':
       return <ChatIcon {...props} />;
     default:
@@ -106,12 +109,12 @@ function MainTabs() {
     <Tab.Navigator screenOptions={{ headerShown: false }} tabBar={(props) => <MyTabBar {...props} />}>
       <Tab.Screen name="Search" component={SearchScreen} options={{ tabBarLabel: 'search' }} />
       <Tab.Screen name="Match" component={SwipeScreen} options={{ tabBarLabel: 'match' }} />
+      <Tab.Screen name="Notifications" component={NotificationsScreen} options={{ tabBarLabel: 'notifications' }} />
       <Tab.Screen name="Matches" component={MatchesScreen} options={{ tabBarLabel: 'matches' }} />
       <Tab.Screen name="Profile" component={ProfileScreen} options={{ tabBarLabel: 'profile' }} />
     </Tab.Navigator>
   );
 }
-
 export default function MainApp() {
   return (
     <Stack.Navigator screenOptions={{ headerShown: false, cardStyle: { backgroundColor: BG } }}>
@@ -119,8 +122,21 @@ export default function MainApp() {
       <Stack.Screen name="MovieDetail" component={MovieDetailScreen} options={{ presentation: 'modal' }} />
       <Stack.Screen name="Chat" component={ChatScreen} />
       <Stack.Screen name="EditProfile" component={EditProfileScreen} />
-      <Stack.Screen name="SetUpProfile" component={SetUpProfileScreen} />
-      <Stack.Screen name="EditPreferences" component={EditPreferencesScreen} />
+      <Stack.Screen 
+        name="SetUpProfile" 
+        component={SetUpProfileScreen}
+        options={{
+          gestureEnabled: false,  // Disable swipe back
+          headerLeft: () => null, // Remove back button
+        }}
+      />
+      <Stack.Screen
+        name="EditPreferences" 
+        component={EditPreferencesScreen}
+        options={{
+          gestureEnabled: false,  // Disable swipe back during onboarding
+        }}
+      />
     </Stack.Navigator>
   );
 }
