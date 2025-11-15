@@ -57,8 +57,8 @@ export class NotificationService {
       await addDoc(notificationsRef, {
         userId: user1Id,
         type: 'match',
-        title: '🎉 New Match!',
-        message: `You matched with ${user2Name}`,
+        title: 'new match',
+        message: `you matched with ${user2Name}`,
         read: false,
         createdAt: serverTimestamp(),
         data: {
@@ -74,8 +74,8 @@ export class NotificationService {
       await addDoc(notificationsRef, {
         userId: user2Id,
         type: 'match',
-        title: '🎉 New Match!',
-        message: `You matched with ${user1Name}`,
+        title: 'new match',
+        message: `you matched with ${user1Name}`,
         read: false,
         createdAt: serverTimestamp(),
         data: {
@@ -124,7 +124,7 @@ export class NotificationService {
         await addDoc(notificationsRef, {
           userId: recipientId,
           type: 'message',
-          title: `💬 ${senderName}`,
+          title: senderName,
           message: messageText,
           read: false,
           createdAt: serverTimestamp(),

@@ -1,14 +1,13 @@
 // src/components/icons/MinimalIcons.tsx
 import React from 'react';
-import Svg, { Path, Circle, Line } from 'react-native-svg';
+import Svg, { Path, Circle, Line, Rect } from 'react-native-svg';
 
 const ACTIVE = '#511619';
 const INACTIVE = 'rgba(240,228,193,0.7)';
+const STROKE = 2;
+
 type Props = { active?: boolean; color?: string };
 
-// One place to tweak thickness for ALL icons
-const STROKE = 2; // try 1.8, 2, or 2.2 if you need a hairline adjustment
-export { BellIcon } from './BellIcon';
 /* SEARCH — balanced lens + handle, centered */
 export function SearchIcon({ active, color }: Props) {
   const c = color ?? (active ? ACTIVE : INACTIVE);
@@ -20,7 +19,7 @@ export function SearchIcon({ active, color }: Props) {
   );
 }
 
-/* HEART — slim, symmetric, pointed tip; matches visual box of others */
+/* HEART — slim, symmetric, pointed tip */
 export function HeartIcon({ active, color }: Props) {
   const c = color ?? (active ? ACTIVE : INACTIVE);
   return (
@@ -47,7 +46,7 @@ export function HeartIcon({ active, color }: Props) {
   );
 }
 
-/* CHAT — rounded rectangle with integrated tail; same padding as others */
+/* CHAT — rounded rectangle with integrated tail */
 export function ChatIcon({ active, color }: Props) {
   const c = color ?? (active ? ACTIVE : INACTIVE);
   return (
@@ -77,18 +76,40 @@ export function ChatIcon({ active, color }: Props) {
     </Svg>
   );
 }
-/* PROFILE — optically matched size */
-export function ProfileIcon({ active, color }: { active?: boolean; color?: string }) {
-  const ACTIVE = '#511619';
-  const INACTIVE = 'rgba(240,228,193,0.7)';
-  const c = color ?? (active ? ACTIVE : INACTIVE);
-  const STROKE = 2; // keep in sync with your other icons
 
+/* BELL - classic bell shape */
+export function BellIcon({ active, color }: Props) {
+  const c = color ?? (active ? ACTIVE : INACTIVE);
   return (
     <Svg width={24} height={24} viewBox="0 0 24 24">
-      {/* Bigger head, same top padding as others (≈1px with stroke) */}
+      {/* Bell body */}
+      <Path
+        d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"
+        stroke={c}
+        strokeWidth={STROKE}
+        fill="none"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      {/* Bell clapper */}
+      <Path
+        d="M13.73 21a2 2 0 0 1-3.46 0"
+        stroke={c}
+        strokeWidth={STROKE}
+        fill="none"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </Svg>
+  );
+}
+
+/* PROFILE — optically matched size */
+export function ProfileIcon({ active, color }: Props) {
+  const c = color ?? (active ? ACTIVE : INACTIVE);
+  return (
+    <Svg width={24} height={24} viewBox="0 0 24 24">
       <Circle cx={12} cy={8} r={4} fill="none" stroke={c} strokeWidth={STROKE} />
-      {/* Wider shoulders to fill width like the chat/heart silhouettes */}
       <Path
         d="M4 19c0-3.2 5.3-5.5 8-5.5s8 2.3 8 5.5"
         fill="none"
@@ -100,6 +121,5 @@ export function ProfileIcon({ active, color }: { active?: boolean; color?: strin
   );
 }
 
-/* Export both ways */
-const MinimalIcons = { SearchIcon, HeartIcon, ChatIcon, ProfileIcon };
+const MinimalIcons = { SearchIcon, HeartIcon, ChatIcon, BellIcon, ProfileIcon };
 export default MinimalIcons;

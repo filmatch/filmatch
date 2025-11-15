@@ -17,7 +17,7 @@ import ChatScreen from '../screens/ChatScreen';
 import SetUpProfileScreen from '../screens/SetUpProfileScreen';
 
 import { Movie } from '../types';
-import { SearchIcon, HeartIcon, ChatIcon, ProfileIcon, BellIcon} from '../components/icons/MinimalIcons';
+import { SearchIcon, HeartIcon, ChatIcon, ProfileIcon, BellIcon } from '../components/icons/MinimalIcons';
 
 export type RootStackParamList = {
   MainTabs: undefined;
@@ -42,10 +42,12 @@ function IconFor(routeName: string, active: boolean) {
       return <SearchIcon {...props} />;
     case 'match':
       return <HeartIcon {...props} />;
+    case 'chats':
+      return <ChatIcon {...props} />;
     case 'notifications':
       return <BellIcon {...props} />;
-    case 'matches':
-      return <ChatIcon {...props} />;
+    case 'profile':
+      return <ProfileIcon {...props} />;
     default:
       return <ProfileIcon {...props} />;
   }
@@ -109,12 +111,13 @@ function MainTabs() {
     <Tab.Navigator screenOptions={{ headerShown: false }} tabBar={(props) => <MyTabBar {...props} />}>
       <Tab.Screen name="Search" component={SearchScreen} options={{ tabBarLabel: 'search' }} />
       <Tab.Screen name="Match" component={SwipeScreen} options={{ tabBarLabel: 'match' }} />
+      <Tab.Screen name="Chats" component={MatchesScreen} options={{ tabBarLabel: 'chats' }} />
       <Tab.Screen name="Notifications" component={NotificationsScreen} options={{ tabBarLabel: 'notifications' }} />
-      <Tab.Screen name="Matches" component={MatchesScreen} options={{ tabBarLabel: 'matches' }} />
       <Tab.Screen name="Profile" component={ProfileScreen} options={{ tabBarLabel: 'profile' }} />
     </Tab.Navigator>
   );
 }
+
 export default function MainApp() {
   return (
     <Stack.Navigator screenOptions={{ headerShown: false, cardStyle: { backgroundColor: BG } }}>
@@ -126,15 +129,15 @@ export default function MainApp() {
         name="SetUpProfile" 
         component={SetUpProfileScreen}
         options={{
-          gestureEnabled: false,  // Disable swipe back
-          headerLeft: () => null, // Remove back button
+          gestureEnabled: false,
+          headerLeft: () => null,
         }}
       />
       <Stack.Screen
         name="EditPreferences" 
         component={EditPreferencesScreen}
         options={{
-          gestureEnabled: false,  // Disable swipe back during onboarding
+          gestureEnabled: false,
         }}
       />
     </Stack.Navigator>

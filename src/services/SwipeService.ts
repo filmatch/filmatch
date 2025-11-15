@@ -37,7 +37,7 @@ export class SwipeService {
       const reverseSwipe = await getDoc(reverseSwipeRef);
 
       if (reverseSwipe.exists() && reverseSwipe.data().action === 'like') {
-        console.log(`🎉 MUTUAL MATCH! ${userId} <-> ${targetUserId}`);
+        console.log(`MUTUAL MATCH! ${userId} <-> ${targetUserId}`);
         
         // Store the match in matches collection
         await this.createMatch(userId, targetUserId);

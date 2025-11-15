@@ -1,4 +1,3 @@
-// src/screens/NotificationsScreen.tsx
 import React, { useEffect, useState } from 'react';
 import {
   SafeAreaView,
@@ -26,12 +25,12 @@ const fmtTime = (timestamp: any) => {
   const diffMins = Math.floor(diffMs / 60000);
   
   if (diffMins < 1) return 'just now';
-  if (diffMins < 60) return `${diffMins}m ago`;
-  if (diffMins < 1440) return `${Math.floor(diffMins / 60)}h ago`;
+  if (diffMins < 60) return `${diffMins} minutes ago`;
+  if (diffMins < 1440) return `${Math.floor(diffMins / 60)} hours ago`;
   
   const days = Math.floor(diffMins / 1440);
   if (days === 1) return 'yesterday';
-  if (days < 7) return `${days}d ago`;
+  if (days < 7) return `${days} days ago`;
   
   return date.toLocaleDateString();
 };
@@ -50,13 +49,13 @@ export default function NotificationsScreen() {
       return;
     }
 
-    console.log('🔔 Setting up notification listener for user:', currentUser.uid);
+    console.log('Setting up notification listener for user:', currentUser.uid);
 
     // Set up real-time listener
     const unsubscribe = NotificationService.listenToNotifications(
       currentUser.uid,
       (newNotifications) => {
-        console.log('🔔 Received notifications:', newNotifications.length);
+        console.log('Received notifications:', newNotifications.length);
         setNotifications(newNotifications);
         setLoading(false);
         setRefreshing(false);
@@ -64,26 +63,23 @@ export default function NotificationsScreen() {
     );
 
     return () => {
-      console.log('🔔 Cleaning up notification listener');
+      console.log('Cleaning up notification listener');
       unsubscribe();
     };
   }, [currentUser]);
 
   const onRefresh = () => {
     setRefreshing(true);
-    // The listener will automatically update
     setTimeout(() => setRefreshing(false), 1000);
   };
 
   const handleNotificationPress = async (notification: Notification) => {
-    // Mark as read
     if (!notification.read) {
       await NotificationService.markAsRead(notification.id);
     }
 
-    // Navigate based on notification type
     if (notification.type === 'match' && notification.data?.chatId) {
-      navigation.navigate('Matches');
+      navigation.navigate('Chats');
     } else if (notification.type === 'message' && notification.data?.chatId) {
       navigation.navigate('Chat', { chatId: notification.data.chatId });
     }
@@ -91,12 +87,12 @@ export default function NotificationsScreen() {
 
   const handleDeleteNotification = (notificationId: string) => {
     Alert.alert(
-      'delete notification',
-      'are you sure?',
+      'Delete notification',
+      'Are you sure?',
       [
-        { text: 'cancel', style: 'cancel' },
+        { text: 'Cancel', style: 'cancel' },
         {
-          text: 'delete',
+          text: 'Delete',
           style: 'destructive',
           onPress: async () => {
             await NotificationService.deleteNotification(notificationId);
@@ -110,12 +106,12 @@ export default function NotificationsScreen() {
     if (notifications.length === 0) return;
 
     Alert.alert(
-      'clear all',
-      'delete all notifications?',
+      'Clear all',
+      'Delete all notifications?',
       [
-        { text: 'cancel', style: 'cancel' },
+        { text: 'Cancel', style: 'cancel' },
         {
-          text: 'clear all',
+          text: 'Clear all',
           style: 'destructive',
           onPress: async () => {
             if (currentUser) {
@@ -130,19 +126,6 @@ export default function NotificationsScreen() {
   const unreadCount = notifications.filter((n) => !n.read).length;
 
   const renderNotification = ({ item }: { item: Notification }) => {
-    const getIcon = () => {
-      switch (item.type) {
-        case 'match':
-          return '🎉';
-        case 'message':
-          return '💬';
-        case 'like':
-          return '❤️';
-        default:
-          return '🔔';
-      }
-    };
-
     return (
       <TouchableOpacity
         style={[styles.notificationCard, !item.read && styles.unreadCard]}
@@ -151,13 +134,15 @@ export default function NotificationsScreen() {
         activeOpacity={0.7}
       >
         <View style={styles.notificationContent}>
-          {/* Avatar or Icon */}
+          {/* Avatar */}
           <View style={styles.avatarContainer}>
             {item.data?.fromUserPhoto ? (
               <Image source={{ uri: item.data.fromUserPhoto }} style={styles.avatar} />
             ) : (
               <View style={[styles.avatar, styles.avatarPlaceholder]}>
-                <Text style={styles.avatarIcon}>{getIcon()}</Text>
+                <Text style={styles.avatarText}>
+                  {item.data?.fromUserName?.[0]?.toUpperCase() || '?'}
+                </Text>
               </View>
             )}
             {!item.read && <View style={styles.unreadDot} />}
@@ -182,7 +167,7 @@ export default function NotificationsScreen() {
         <StatusBar style="light" />
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#F0E4C1" />
-          <Text style={styles.loadingText}>loading notifications...</Text>
+          <Text style={styles.loadingText}>Loading notifications...</Text>
         </View>
       </SafeAreaView>
     );
@@ -194,10 +179,10 @@ export default function NotificationsScreen() {
 
       {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>notifications</Text>
+        <Text style={styles.headerTitle}>Notifications</Text>
         {notifications.length > 0 && (
           <TouchableOpacity onPress={handleClearAll} style={styles.clearButton}>
-            <Text style={styles.clearButtonText}>clear all</Text>
+            <Text style={styles.clearButtonText}>Clear all</Text>
           </TouchableOpacity>
         )}
       </View>
@@ -214,10 +199,9 @@ export default function NotificationsScreen() {
       {/* Notifications List */}
       {notifications.length === 0 ? (
         <View style={styles.emptyContainer}>
-          <Text style={styles.emptyIcon}>🔔</Text>
-          <Text style={styles.emptyTitle}>no notifications</Text>
+          <Text style={styles.emptyTitle}>No notifications</Text>
           <Text style={styles.emptyText}>
-            you'll see notifications here when you get matches or messages
+            you'll see notifications here when you get matches or messages.
           </Text>
         </View>
       ) : (
@@ -339,8 +323,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  avatarIcon: {
-    fontSize: 24,
+  avatarText: {
+    color: 'rgba(240,228,193,0.6)',
+    fontSize: 18,
+    fontWeight: '700',
   },
   unreadDot: {
     position: 'absolute',
@@ -382,10 +368,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     padding: 40,
-  },
-  emptyIcon: {
-    fontSize: 64,
-    marginBottom: 16,
   },
   emptyTitle: {
     color: '#F0E4C1',

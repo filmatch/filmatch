@@ -73,7 +73,7 @@ export default function HomeScreen() {
           />
         ) : (
           <View style={styles.posterPlaceholder}>
-            <Text style={styles.posterPlaceholderText}>🎬</Text>
+            <Text style={styles.posterPlaceholderText}>no image</Text>
           </View>
         )}
       </View>
@@ -81,7 +81,7 @@ export default function HomeScreen() {
         {item.title}
       </Text>
       <Text style={styles.meta}>
-        {item.year} • ⭐ {item.rating.toFixed(1)}
+        {item.year} • {item.rating.toFixed(1)}
       </Text>
       <Text style={styles.genres} numberOfLines={1}>
         {item.genres.slice(0, 2).join(', ')}
@@ -130,7 +130,7 @@ export default function HomeScreen() {
         <StatusBar style="light" />
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#F0E4C1" />
-          <Text style={styles.loadingText}>Loading featured movies...</Text>
+          <Text style={styles.loadingText}>loading featured movies...</Text>
         </View>
       </SafeAreaView>
     );
@@ -141,7 +141,7 @@ export default function HomeScreen() {
       <StatusBar style="light" />
       
       <FlatList
-        data={[1]} // Dummy data to use FlatList for scroll + refresh
+        data={[1]}
         keyExtractor={() => 'home'}
         refreshControl={
           <RefreshControl
@@ -153,8 +153,8 @@ export default function HomeScreen() {
         renderItem={() => (
           <View>
             <View style={styles.header}>
-              <Text style={styles.heading}>Movie Discovery</Text>
-              <Text style={styles.subheading}>Find your next favorite film</Text>
+              <Text style={styles.heading}>movie discovery</Text>
+              <Text style={styles.subheading}>find your next favorite film</Text>
             </View>
 
             {trendingMovies.length > 0 && renderSection('trending this week', trendingMovies)}
@@ -168,7 +168,7 @@ export default function HomeScreen() {
 }
 
 const CARD_W = width * 0.55;
-const GRID_CARD_W = (width - 48) / 2; // Account for padding and gap
+const GRID_CARD_W = (width - 48) / 2;
 
 const styles = StyleSheet.create({
   container: { 
@@ -262,7 +262,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   posterPlaceholderText: { 
-    fontSize: 48 
+    fontSize: 12,
+    color: 'rgba(240,228,193,0.5)',
   },
   title: { 
     color: '#F0E4C1', 
@@ -291,11 +292,3 @@ const styles = StyleSheet.create({
     fontStyle: 'italic',
   },
 });
-
-// Update grid cards to be smaller
-StyleSheet.flatten([
-  styles.card,
-  {
-    width: GRID_CARD_W,
-  }
-]);
