@@ -35,15 +35,11 @@ const routeAfterAuth = async (u: User) => {
     return;
   }
   try {
-    // First, ensure the user profile exists
     await FirestoreService.createUserProfileIfMissing(u.uid);
-    
-    // Then check if onboarding is complete
     const has = await FirestoreService.hasCompletedOnboarding(u.uid);
     setState(has ? 'authenticated' : 'onboarding');
   } catch (error) {
     console.error('Error in routeAfterAuth:', error);
-    // If there's an error, send them to onboarding to be safe
     setState('onboarding');
   }
 };
@@ -54,7 +50,6 @@ const routeAfterAuth = async (u: User) => {
         setState('unauthenticated');
         return;
       }
-      // Reload once to avoid the "verify then disappear" flicker
       try {
         await reload(u);
       } catch {}

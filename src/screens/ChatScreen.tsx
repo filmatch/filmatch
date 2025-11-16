@@ -64,28 +64,18 @@ export default function ChatScreen() {
   const [sending, setSending] = useState(false);
   const [otherUser, setOtherUser] = useState<UserProfile | null>(null);
   const flatListRef = useRef<FlatList>(null);
-
-// In ChatScreen.tsx, in the useEffect around line 50
 useEffect(() => {
   if (!currentUser || !chatId) return;
-
-  // Load other user's profile
   loadOtherUserProfile();
-
-  // Clear message notification for this chat when user opens it
-  // Wrap in try-catch to prevent crashes
   NotificationService.clearChatNotification(currentUser.uid, chatId).catch((err) => {
     console.log('Could not clear notification:', err);
   });
-
-  // Set up real-time message listener
   const messagesRef = collection(db, 'chats', chatId, 'messages');
   const messagesQuery = query(messagesRef, orderBy('createdAt', 'asc'));
 
   const unsubscribe = onSnapshot(
     messagesQuery,
     (snapshot) => {
-      // ... rest of code
         const loadedMessages: Message[] = [];
         
         snapshot.forEach((doc) => {
@@ -100,8 +90,6 @@ useEffect(() => {
 
         setMessages(loadedMessages);
         setLoading(false);
-
-        // Scroll to bottom when new messages arrive
         setTimeout(() => {
           flatListRef.current?.scrollToEnd({ animated: true });
         }, 100);
@@ -118,7 +106,6 @@ useEffect(() => {
   if (!currentUser || !chatId) return;
 
   try {
-    // Extract other user ID from chatId format: chat_userId1_userId2
     const userIds = chatId.replace('chat_', '').split('_');
     const otherUserId = userIds.find(id => id !== currentUser.uid);
     
@@ -129,8 +116,6 @@ useEffect(() => {
 
     const profile = await FirestoreService.getUserProfile(otherUserId);
     setOtherUser(profile);
-    
-    // Set navigation title
     navigation.setOptions({
       title: profile?.displayName || 'Chat',
     });
@@ -147,12 +132,10 @@ useEffect(() => {
   setSending(true);
 
   try {
-    // Check if chat exists, create it if not
     const chatRef = doc(db, 'chats', chatId);
     const chatDoc = await getDoc(chatRef);
     
     if (!chatDoc.exists()) {
-      // First message - create the chat document
       const sortedIds = chatId.replace('chat_', '').split('_');
       await setDoc(chatRef, {
         participants: sortedIds,
@@ -162,22 +145,17 @@ useEffect(() => {
       });
       console.log('✅ Chat created with first message');
     } else {
-      // Update existing chat's last message
       await updateDoc(chatRef, {
         lastMessage: messageText,
         lastMessageTime: serverTimestamp(),
       });
     }
-
-    // Add message to messages subcollection
     const messagesRef = collection(db, 'chats', chatId, 'messages');
     await addDoc(messagesRef, {
       text: messageText,
       senderId: currentUser.uid,
       createdAt: serverTimestamp(),
     });
-
-    // Send notification to other user
     if (otherUser) {
       const currentUserProfile = await FirestoreService.getUserProfile(currentUser.uid);
       
@@ -196,7 +174,7 @@ useEffect(() => {
     console.log('✅ Message sent successfully');
   } catch (error) {
     console.error('❌ Error sending message:', error);
-    setInputText(messageText); // Restore text on error
+    setInputText(messageText); 
   } finally {
     setSending(false);
   }

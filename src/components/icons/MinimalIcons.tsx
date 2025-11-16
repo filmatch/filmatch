@@ -7,8 +7,6 @@ const INACTIVE = 'rgba(240,228,193,0.7)';
 const STROKE = 2;
 
 type Props = { active?: boolean; color?: string };
-
-/* SEARCH — balanced lens + handle, centered */
 export function SearchIcon({ active, color }: Props) {
   const c = color ?? (active ? ACTIVE : INACTIVE);
   return (
@@ -17,10 +15,7 @@ export function SearchIcon({ active, color }: Props) {
       <Line x1={15.5} y1={15.5} x2={20} y2={20} stroke={c} strokeWidth={STROKE} strokeLinecap="round" />
     </Svg>
   );
-}
-
-/* HEART — slim, symmetric, pointed tip */
-export function HeartIcon({ active, color }: Props) {
+}export function HeartIcon({ active, color }: Props) {
   const c = color ?? (active ? ACTIVE : INACTIVE);
   return (
     <Svg width={24} height={24} viewBox="0 0 24 24">
@@ -45,8 +40,6 @@ export function HeartIcon({ active, color }: Props) {
     </Svg>
   );
 }
-
-/* CHAT — rounded rectangle with integrated tail */
 export function ChatIcon({ active, color }: Props) {
   const c = color ?? (active ? ACTIVE : INACTIVE);
   return (
@@ -76,8 +69,6 @@ export function ChatIcon({ active, color }: Props) {
     </Svg>
   );
 }
-
-/* BELL - classic bell shape */
 export function BellIcon({ active, color }: Props) {
   const c = color ?? (active ? ACTIVE : INACTIVE);
   return (
@@ -103,8 +94,6 @@ export function BellIcon({ active, color }: Props) {
     </Svg>
   );
 }
-
-/* PROFILE — optically matched size */
 export function ProfileIcon({ active, color }: Props) {
   const c = color ?? (active ? ACTIVE : INACTIVE);
   return (

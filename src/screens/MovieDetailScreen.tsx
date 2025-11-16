@@ -13,8 +13,8 @@ import {
   Image,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
-import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
-import type { StackNavigationProp } from '@react-navigation/stack';
+import { useNavigation, useRoute } from '@react-navigation/native';
+import type { StackNavigationProp, StackScreenProps } from '@react-navigation/stack';
 import { getAuth } from 'firebase/auth';
 import { doc, setDoc, getDoc, updateDoc } from 'firebase/firestore';
 import { db } from '../../config/firebase';
@@ -29,9 +29,8 @@ type RootStackParamList = {
   Chat: { chatId?: string } | undefined;
 };
 
-type MovieDetailRouteProp = RouteProp<RootStackParamList, 'MovieDetail'>;
+type MovieDetailRouteProp = { params: { movie: MovieWithUserData } };
 type MovieDetailNavProp = StackNavigationProp<RootStackParamList, 'MovieDetail'>;
-
 export default function MovieDetailScreen() {
   const navigation = useNavigation<MovieDetailNavProp>();
   const route = useRoute<MovieDetailRouteProp>();
@@ -65,7 +64,8 @@ export default function MovieDetailScreen() {
   // ---- data loaders ----
   const loadMovieDetails = async () => {
     try {
-      const details = await TMDbService.getMovieDetails(movie.tmdb_id || movie.id);
+const movieId = Number(movie.tmdb_id || movie.id);
+      const details = await TMDbService.getMovieDetails(movieId);
       if (details) {
         // keep only fields that exist in your Movie/MovieWithUserData types
         const merged: MovieWithUserData = {

@@ -1,30 +1,10 @@
-// config/firebase.ts
-import { initializeApp } from 'firebase/app';
-import { getAuth } from 'firebase/auth';
-import { getFirestore } from 'firebase/firestore';
-import { getStorage } from 'firebase/storage';
-
-const firebaseConfig = {
-  apiKey: process.env.EXPO_PUBLIC_FIREBASE_API_KEY,
-  authDomain: process.env.EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN,
-  projectId: process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID,
-  storageBucket: process.env.EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: process.env.EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
-  appId: process.env.EXPO_PUBLIC_FIREBASE_APP_ID
-};
-
-const app = initializeApp(firebaseConfig);
-
-const auth = getAuth(app);
-const db = getFirestore(app);
-const storage = getStorage(app);
-
-export { app, auth, db, storage, firebaseConfig };
-
+// src/services/FirebaseStorageService.ts
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
-import { storage as FirebaseStorage } from '../config/firebase';
+import { storage } from '../../config/firebase';
 
 export class FirebaseStorageService {
+  private static storage = storage;
+
   /**
    * Upload a profile photo to Firebase Storage
    * @param uri - Local file URI from the image picker
@@ -34,18 +14,12 @@ export class FirebaseStorageService {
    */
   static async uploadProfilePhoto(uri: string, userId: string, photoIndex: number): Promise<string> {
     try {
-      console.log('Starting upload for userId:', userId);
-      
       const response = await fetch(uri);
       const blob = await response.blob();
       const timestamp = Date.now();
       const filename = `profile_photos/${userId}/photo_${photoIndex}_${timestamp}.jpg`;
-      console.log('Uploading to path:', filename);
-      
-      const storageRef = ref(storage, filename);
+      const storageRef = ref(this.storage, filename);
       await uploadBytes(storageRef, blob);
-      console.log('Upload successful');
-
       const downloadURL = await getDownloadURL(storageRef);
       return downloadURL;
     } catch (error) {
@@ -60,14 +34,11 @@ export class FirebaseStorageService {
    */
   static async deleteProfilePhoto(photoUrl: string): Promise<void> {
     try {
-      // Extract the storage path from the URL
-      const photoRef = ref(storage, photoUrl);
+      const photoRef = ref(this.storage, photoUrl);
       await deleteObject(photoRef);
       console.log('Photo deleted successfully');
     } catch (error) {
       console.error('Error deleting photo:', error);
-      // Don't throw - photo might already be deleted or URL might be invalid
-      // This prevents blocking the user if deletion fails
     }
   }
 

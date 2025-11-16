@@ -85,8 +85,6 @@ export default function MatchesScreen() {
   useEffect(() => {
     loadCurrentUserProfile();
     loadMatches();
-    
-    // Set up real-time listener for chats
     if (!currentUser) {
       setLoading(false);
       return;
@@ -110,15 +108,11 @@ export default function MatchesScreen() {
           const data = docSnap.data();
           
           console.log('💬 Processing chat:', docSnap.id, 'participants:', data.participants);
-          
-          // Get other user ID
           const otherUserId = data.participants.find((id: string) => id !== currentUser.uid);
           if (!otherUserId) {
             console.log('⚠️ No other user found in chat:', docSnap.id);
             continue;
           }
-          
-          // Fetch other user's profile
           try {
             const otherUserProfile = await FirestoreService.getUserProfile(otherUserId);
             if (!otherUserProfile) {
@@ -147,7 +141,6 @@ export default function MatchesScreen() {
         setChats(chatRows);
       },
       (error) => {
-        // Handle errors silently if user logs out
         if (error.code !== 'permission-denied') {
           console.error('❌ Error in chat listener:', error);
         }
@@ -179,19 +172,13 @@ export default function MatchesScreen() {
 
       const userProfile = await FirestoreService.getUserProfile(currentUser.uid);
       if (!userProfile) return;
-
-      // Get actual matches from the matches collection
       const matchesRef = collection(db, 'matches');
-      
-      // Query matches where current user is either user1 or user2
       const q1 = firestoreQuery(matchesRef, where('user1Id', '==', currentUser.uid));
       const q2 = firestoreQuery(matchesRef, where('user2Id', '==', currentUser.uid));
       
       const [snapshot1, snapshot2] = await Promise.all([getDocs(q1), getDocs(q2)]);
       
       const matchedUserIds: string[] = [];
-      
-      // Collect all matched user IDs
       snapshot1.forEach(doc => {
         const data = doc.data();
         matchedUserIds.push(data.user2Id);
@@ -201,8 +188,6 @@ export default function MatchesScreen() {
         const data = doc.data();
         matchedUserIds.push(data.user1Id);
       });
-
-      // Fetch profiles for all matched users
       const matchProfiles: NewMatch[] = [];
       
       for (const matchedUserId of matchedUserIds) {
@@ -282,13 +267,8 @@ export default function MatchesScreen() {
 
  const onStartChat = async () => {
   if (!selected || !currentUser || !currentUserProfile) return;
-  
-  // Create consistent chatId by sorting user IDs
   const sortedIds = [currentUser.uid, selected.uid].sort();
   const chatId = `chat_${sortedIds[0]}_${sortedIds[1]}`;
-  
-  // DON'T create the chat document here - just navigate
-  // The chat will be created when the first message is sent
   setModalOpen(false);
   navigation.navigate('Chat', { chatId });
 };
@@ -301,7 +281,6 @@ export default function MatchesScreen() {
         text: 'remove',
         style: 'destructive',
         onPress: () => {
-          // TODO: Actually delete the match from Firestore
           setNewMatches((prev) => prev.filter((m) => m.uid !== selected.uid));
           setModalOpen(false);
           setSelected(null);
@@ -314,7 +293,6 @@ export default function MatchesScreen() {
     Alert.alert('delete chat', 'this will delete the chat from your list.', [
       { text: 'cancel', style: 'cancel' },
       { text: 'delete', style: 'destructive', onPress: () => {
-        // TODO: Implement chat deletion from Firestore
         setChats((prev) => prev.filter((c) => c.id !== id));
       }},
     ]);

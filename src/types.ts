@@ -1,10 +1,22 @@
 // src/types.ts
+
 export type FavoriteMovie = {
   id: string;
   title: string;
   year?: number;
 };
-
+export interface MovieWithUserData extends Movie {
+  tmdb_id?: string | number;
+  userRating?: number;
+  userStatus?: 'watched' | 'watchlist';
+  release_date?: string;
+  overview?: string;
+  runtime?: number;
+  director?: string;
+  genres?: string[];
+  cast?: string[];
+  vote_average?: number;
+}
 export type RecentWatch = {
   id: string;
   title: string;

@@ -35,14 +35,11 @@ export default function OnboardingScreen({ onComplete }: Props) {
           (Array.isArray(profile?.genreRatings) && profile.genreRatings.length > 0) ||
           (Array.isArray(profile?.favorites) && profile.favorites.length >= 1);
 
-        // SIGN-IN path: everything done -> go straight into the app
         if (hasProfile && hasPreferences) {
           onComplete();
           return;
         }
-
-        // SIGN-UP path: mount app, then push into the correct step
-        onComplete();
+  onComplete();
         setTimeout(() => {
           if (cancelled) return;
           if (!hasProfile) {
@@ -50,10 +47,10 @@ export default function OnboardingScreen({ onComplete }: Props) {
           } else if (!hasPreferences) {
             navigateNested('MainApp', 'EditPreferences');
           }
-        }, 300); // Increased from 0 to 300ms to allow navigator to mount
+        }, 300);
       } catch (err) {
         console.error('Onboarding error:', err);
-        onComplete(); // fail-open so the user is not stuck
+        onComplete();
       }
     })();
 

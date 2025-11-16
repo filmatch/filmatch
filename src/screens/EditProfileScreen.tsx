@@ -12,12 +12,18 @@ import {
   Image,
   Dimensions,
   Modal,
-  PanResponder,
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { useNavigation } from "@react-navigation/native";
 import { FirebaseAuthService } from "../services/FirebaseAuthService";
 import { FirestoreService } from "../services/FirestoreService";
+import * as ImagePicker from 'expo-image-picker';
+import { FirebaseStorageService } from '../services/FirebaseStorageService';
+import DraggableFlatList, {
+  OpacityDecorator,
+  RenderItemParams,
+} from 'react-native-draggable-flatlist';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 const { width } = Dimensions.get('window');
 const PHOTO_SIZE = (width - 60) / 3;
@@ -33,6 +39,11 @@ type Draft = {
   email: string;
 };
 
+type PhotoItem = {
+  id: string;
+  uri: string;
+};
+
 const GENDER_OPTIONS = ["female", "male", "nonbinary", "other"];
 const INTERESTED_OPTIONS = ["female", "male", "nonbinary", "other"];
 const MAX_BIO = 160;
@@ -41,6 +52,7 @@ const MAX_PHOTOS = 6;
 export default function EditProfileScreen() {
   const navigation = useNavigation();
   const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const [draft, setDraft] = useState<Draft>({
     displayName: "",
     age: "",
@@ -52,9 +64,16 @@ export default function EditProfileScreen() {
     email: "",
   });
   const [selectedPhotoIndex, setSelectedPhotoIndex] = useState<number | null>(null);
-  const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
 
   const bioCount = useMemo(() => draft.bio.length, [draft.bio]);
+
+  const photoItems: PhotoItem[] = useMemo(() => 
+    draft.photos.map((uri, index) => ({
+      id: `photo-${index}-${uri.slice(-10)}`,
+      uri,
+    })),
+    [draft.photos]
+  );
 
   useEffect(() => {
     (async () => {
@@ -66,7 +85,6 @@ export default function EditProfileScreen() {
         }
         const profile = await FirestoreService.getUserProfile(user.uid);
 
-        // Try both genderPreferences (new) and interestedIn (old) for backwards compatibility
         const interestedArray = Array.isArray((profile as any)?.genderPreferences)
           ? (profile as any).genderPreferences
           : Array.isArray((profile as any)?.interestedIn)
@@ -95,10 +113,123 @@ export default function EditProfileScreen() {
     })();
   }, []);
 
-  const handlePhotoUpload = (index: number) => {
-    // Placeholder for image picker - to be implemented
-    Alert.alert("upload photo", "image picker will be implemented here");
-    // TODO: Implement expo-image-picker
+  const handlePhotoUpload = async (index?: number) => {
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      
+      if (status !== 'granted') {
+        Alert.alert('Permission needed', 'We need camera roll permissions to upload photos.');
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [3, 4],
+        quality: 0.8,
+      });
+
+      if (result.canceled) {
+        return;
+      }
+
+      const user = FirebaseAuthService.getCurrentUser();
+      if (!user) {
+        Alert.alert("Error", "No user found. Please sign in again.");
+        return;
+      }
+
+      setUploading(true);
+
+      const photoIndex = index !== undefined ? index : draft.photos.length;
+      const downloadURL = await FirebaseStorageService.uploadProfilePhoto(
+        result.assets[0].uri,
+        user.uid,
+        photoIndex
+      );
+
+      setDraft((prev) => {
+        const newPhotos = [...prev.photos];
+        if (index !== undefined && index < newPhotos.length) {
+          newPhotos[index] = downloadURL;
+        } else {
+          newPhotos.push(downloadURL);
+        }
+        return { ...prev, photos: newPhotos };
+      });
+
+      Alert.alert("Success", "Photo uploaded successfully!");
+    } catch (error) {
+      console.error('Error uploading photo:', error);
+      Alert.alert("Error", "Failed to upload photo. Please try again.");
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleTakePhoto = async (index?: number) => {
+    try {
+      const { status } = await ImagePicker.requestCameraPermissionsAsync();
+      
+      if (status !== 'granted') {
+        Alert.alert('Permission needed', 'We need camera permissions to take photos.');
+        return;
+      }
+
+      const result = await ImagePicker.launchCameraAsync({
+        allowsEditing: true,
+        aspect: [3, 4],
+        quality: 0.8,
+      });
+
+      if (result.canceled) {
+        return;
+      }
+
+      const user = FirebaseAuthService.getCurrentUser();
+      if (!user) {
+        Alert.alert("Error", "No user found. Please sign in again.");
+        return;
+      }
+
+      setUploading(true);
+
+      const photoIndex = index !== undefined ? index : draft.photos.length;
+      const downloadURL = await FirebaseStorageService.uploadProfilePhoto(
+        result.assets[0].uri,
+        user.uid,
+        photoIndex
+      );
+
+      setDraft((prev) => {
+        const newPhotos = [...prev.photos];
+        if (index !== undefined && index < newPhotos.length) {
+          newPhotos[index] = downloadURL;
+        } else {
+          newPhotos.push(downloadURL);
+        }
+        return { ...prev, photos: newPhotos };
+      });
+
+      Alert.alert("Success", "Photo uploaded successfully!");
+    } catch (error) {
+      console.error('Error taking photo:', error);
+      Alert.alert("Error", "Failed to take photo. Please try again.");
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const showPhotoOptions = () => {
+    Alert.alert(
+      "Add Photo",
+      "Choose an option",
+      [
+        { text: "Take Photo", onPress: () => handleTakePhoto() },
+        { text: "Choose from Library", onPress: () => handlePhotoUpload() },
+        { text: "Cancel", style: "cancel" }
+      ]
+    );
   };
 
   const removePhoto = (index: number) => {
@@ -113,15 +244,6 @@ export default function EditProfileScreen() {
       return { ...prev, photos: newPhotos };
     });
     setSelectedPhotoIndex(null);
-  };
-
-  const movePhoto = (fromIndex: number, toIndex: number) => {
-    setDraft((prev) => {
-      const newPhotos = [...prev.photos];
-      const [moved] = newPhotos.splice(fromIndex, 1);
-      newPhotos.splice(toIndex, 0, moved);
-      return { ...prev, photos: newPhotos };
-    });
   };
 
   const navigatePhoto = (direction: 'prev' | 'next') => {
@@ -197,8 +319,8 @@ export default function EditProfileScreen() {
       age: ageNum,
       city: draft.city.trim(),
       gender: draft.gender,
-      genderPreferences: draft.interestedIn, // Save as genderPreferences
-      interestedIn: draft.interestedIn, // Keep old field for backwards compatibility
+      genderPreferences: draft.interestedIn,
+      interestedIn: draft.interestedIn,
       bio: draft.bio.trim() || undefined,
       photos: draft.photos,
     };
@@ -233,266 +355,290 @@ export default function EditProfileScreen() {
     setDraft((p) => ({ ...p, bio: truncated }));
   };
 
-  const renderPhotoSlot = (index: number) => {
-    const photo = draft.photos[index];
-    const isLastSlot = index >= draft.photos.length && draft.photos.length < MAX_PHOTOS;
+  const onDragEnd = ({ data }: { data: PhotoItem[] }) => {
+    setDraft((prev) => ({
+      ...prev,
+      photos: data.map(item => item.uri),
+    }));
+  };
+
+  const renderPhotoItem = ({ item, drag, isActive, getIndex }: RenderItemParams<PhotoItem>) => {
+    const index = getIndex();
+    const isFirst = index === 0;
     
-    if (photo) {
-      return (
+    return (
+      <OpacityDecorator activeOpacity={0.9}>
         <TouchableOpacity
-          key={index}
-          style={styles.photoSlot}
-          onPress={() => setSelectedPhotoIndex(index)}
-          onLongPress={() => setDraggedIndex(index)}
+          onPress={() => !isActive && setSelectedPhotoIndex(index || 0)}
+          onLongPress={drag}
+          disabled={uploading}
+          delayLongPress={100}
+          style={[
+            styles.photoSlot,
+            isActive && styles.photoSlotActive,
+            { marginRight: 10, marginBottom: 10 }
+          ]}
         >
-          <Image source={{ uri: photo }} style={styles.photoImage} />
-          {index === 0 && (
-            <View style={styles.profileBadge}>
-              <Text style={styles.profileBadgeText}>profile</Text>
-            </View>
-          )}
+          <View style={[styles.photoContent, isActive && styles.photoContentActive]}>
+            <Image source={{ uri: item.uri }} style={styles.photoImage} />
+            {isFirst && !isActive && (
+              <View style={styles.profileBadge}>
+                <Text style={styles.profileBadgeText}>profile</Text>
+              </View>
+            )}
+            {!isActive && (
+              <View style={styles.dragHandle}>
+                <Text style={styles.dragHandleText}>⋮⋮</Text>
+              </View>
+            )}
+          </View>
         </TouchableOpacity>
-      );
-    } else if (isLastSlot) {
-      return (
-        <TouchableOpacity
-          key={index}
-          style={[styles.photoSlot, styles.emptyPhotoSlot]}
-          onPress={() => handlePhotoUpload(index)}
-        >
-          <Text style={styles.plusIcon}>+</Text>
-        </TouchableOpacity>
-      );
-    }
-    return null;
+      </OpacityDecorator>
+    );
   };
 
   return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar style="light" />
-      
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-          <Text style={styles.backText}>← back</Text>
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>edit profile</Text>
-        <View style={{ width: 60 }} />
-      </View>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <SafeAreaView style={styles.container}>
+        <StatusBar style="light" />
+        
+        <View style={styles.header}>
+          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
+            <Text style={styles.backText}>← back</Text>
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>edit profile</Text>
+          <View style={{ width: 60 }} />
+        </View>
 
-      <ScrollView
-        contentContainerStyle={styles.content}
-        keyboardShouldPersistTaps="handled"
-        keyboardDismissMode="on-drag"
-      >
-        {/* Profile Photo Display */}
-        {draft.photos.length > 0 && (
-          <View style={styles.profilePhotoContainer}>
-            <Image source={{ uri: draft.photos[0] }} style={styles.profilePhoto} />
+        <ScrollView
+          contentContainerStyle={styles.content}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+        >
+          <Text style={styles.label}>photos (up to {MAX_PHOTOS})</Text>
+          <Text style={styles.photoHint}>
+            long press & drag to reorder • first photo is your profile photo
+          </Text>
+          
+          <View style={styles.photosContainer}>
+            <DraggableFlatList
+              data={photoItems}
+              onDragEnd={onDragEnd}
+              keyExtractor={(item) => item.id}
+              renderItem={renderPhotoItem}
+              numColumns={3}
+              scrollEnabled={false}
+              containerStyle={styles.photosGrid}
+              activationDistance={10}
+              renderPlaceholder={() => (
+                <View style={[styles.photoSlot, styles.placeholderSlot, { marginRight: 10, marginBottom: 10 }]} />
+              )}
+            />
+            
+            {draft.photos.length < MAX_PHOTOS && (
+              <TouchableOpacity
+                style={[styles.photoSlot, styles.emptyPhotoSlot]}
+                onPress={showPhotoOptions}
+                disabled={uploading}
+              >
+                <Text style={styles.plusIcon}>{uploading ? '...' : '+'}</Text>
+              </TouchableOpacity>
+            )}
           </View>
-        )}
 
-        {/* Photos Grid */}
-        <Text style={styles.label}>photos (up to {MAX_PHOTOS})</Text>
-        <View style={styles.photosGrid}>
-          {Array.from({ length: Math.min(draft.photos.length + 1, MAX_PHOTOS) }).map((_, idx) => 
-            renderPhotoSlot(idx)
-          )}
-        </View>
-        <Text style={styles.photoHint}>tap and hold to rearrange • first photo is your profile photo</Text>
+          <Text style={styles.label}>email</Text>
+          <View style={styles.emailBox}>
+            <Text style={styles.emailText}>{draft.email || "no email"}</Text>
+          </View>
 
-        <Text style={styles.label}>email</Text>
-        <View style={styles.emailBox}>
-          <Text style={styles.emailText}>{draft.email || "no email"}</Text>
-        </View>
-
-        <Text style={styles.label}>display name</Text>
-        <TextInput
-          value={draft.displayName}
-          onChangeText={handleNameChange}
-          style={styles.input}
-          placeholder="your name"
-          placeholderTextColor="rgba(240,228,193,0.5)"
-          autoCapitalize="words"
-          autoCorrect={false}
-          maxLength={50}
-        />
-
-        <Text style={styles.dualLabel}>age • city</Text>
-        <View style={styles.row}>
+          <Text style={styles.label}>display name</Text>
           <TextInput
-            value={draft.age}
-            onChangeText={handleAgeChange}
-            style={[styles.input, styles.inputHalf]}
-            keyboardType="number-pad"
-            placeholder="age (18+)"
-            placeholderTextColor="rgba(240,228,193,0.5)"
-            maxLength={3}
-          />
-          <TextInput
-            value={draft.city}
-            onChangeText={handleCityChange}
-            style={[styles.input, styles.inputHalf]}
-            placeholder="istanbul"
+            value={draft.displayName}
+            onChangeText={handleNameChange}
+            style={styles.input}
+            placeholder="your name"
             placeholderTextColor="rgba(240,228,193,0.5)"
             autoCapitalize="words"
             autoCorrect={false}
             maxLength={50}
           />
-        </View>
 
-        <Text style={styles.label}>gender</Text>
-        <View style={styles.genderRow}>
-          {GENDER_OPTIONS.map((option) => {
-            const isSelected = draft.gender === option;
-            return (
-              <TouchableOpacity
-                key={option}
-                onPress={() => setDraft((p) => ({ ...p, gender: option }))}
-                style={[
-                  styles.genderPill,
-                  isSelected && styles.genderPillActive,
-                ]}
-              >
-                <Text
+          <Text style={styles.dualLabel}>age • city</Text>
+          <View style={styles.row}>
+            <TextInput
+              value={draft.age}
+              onChangeText={handleAgeChange}
+              style={[styles.input, styles.inputHalf]}
+              keyboardType="number-pad"
+              placeholder="age (18+)"
+              placeholderTextColor="rgba(240,228,193,0.5)"
+              maxLength={3}
+            />
+            <TextInput
+              value={draft.city}
+              onChangeText={handleCityChange}
+              style={[styles.input, styles.inputHalf]}
+              placeholder="istanbul"
+              placeholderTextColor="rgba(240,228,193,0.5)"
+              autoCapitalize="words"
+              autoCorrect={false}
+              maxLength={50}
+            />
+          </View>
+
+          <Text style={styles.label}>gender</Text>
+          <View style={styles.genderRow}>
+            {GENDER_OPTIONS.map((option) => {
+              const isSelected = draft.gender === option;
+              return (
+                <TouchableOpacity
+                  key={option}
+                  onPress={() => setDraft((p) => ({ ...p, gender: option }))}
                   style={[
-                    styles.genderText,
-                    isSelected && styles.genderTextActive,
+                    styles.genderPill,
+                    isSelected && styles.genderPillActive,
                   ]}
                 >
-                  {option}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
-        </View>
+                  <Text
+                    style={[
+                      styles.genderText,
+                      isSelected && styles.genderTextActive,
+                    ]}
+                  >
+                    {option}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
 
-        <Text style={styles.label}>genders i'd like to match (pick at least one)</Text>
-        <View style={styles.interestedRow}>
-          {INTERESTED_OPTIONS.map((option) => {
-            const isSelected = draft.interestedIn.includes(option);
-            return (
-              <TouchableOpacity
-                key={option}
-                onPress={() => toggleInterested(option)}
-                style={[
-                  styles.interestedPill,
-                  isSelected && styles.interestedPillActive,
-                ]}
-              >
-                <Text
+          <Text style={styles.label}>genders i'd like to match (pick at least one)</Text>
+          <View style={styles.interestedRow}>
+            {INTERESTED_OPTIONS.map((option) => {
+              const isSelected = draft.interestedIn.includes(option);
+              return (
+                <TouchableOpacity
+                  key={option}
+                  onPress={() => toggleInterested(option)}
                   style={[
-                    styles.interestedText,
-                    isSelected && styles.interestedTextActive,
+                    styles.interestedPill,
+                    isSelected && styles.interestedPillActive,
                   ]}
                 >
-                  {option}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
-        </View>
+                  <Text
+                    style={[
+                      styles.interestedText,
+                      isSelected && styles.interestedTextActive,
+                    ]}
+                  >
+                    {option}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
 
-        <Text style={styles.label}>
-          bio <Text style={styles.counter}>{bioCount}/{MAX_BIO}</Text>
-        </Text>
-        <TextInput
-          value={draft.bio}
-          onChangeText={handleBioChange}
-          style={[styles.input, styles.textarea]}
-          multiline
-          numberOfLines={4}
-          placeholder="say something about your movie taste"
-          placeholderTextColor="rgba(240,228,193,0.5)"
-          maxLength={MAX_BIO}
-          textAlignVertical="top"
-        />
-
-        <TouchableOpacity
-          style={[styles.saveBtn, (!isProfileValid() || saving) && { opacity: 0.6 }]}
-          onPress={save}
-          disabled={!isProfileValid() || saving}
-        >
-          <Text style={styles.saveText}>{saving ? "saving…" : "save changes"}</Text>
-        </TouchableOpacity>
-      </ScrollView>
-
-      {/* Photo Viewer Modal */}
-      <Modal
-        visible={selectedPhotoIndex !== null}
-        transparent={true}
-        animationType="fade"
-        onRequestClose={() => setSelectedPhotoIndex(null)}
-      >
-        <View style={styles.modalOverlay}>
-          <TouchableOpacity 
-            style={styles.modalBackground}
-            activeOpacity={1}
-            onPress={() => setSelectedPhotoIndex(null)}
+          <Text style={styles.label}>
+            bio <Text style={styles.counter}>{bioCount}/{MAX_BIO}</Text>
+          </Text>
+          <TextInput
+            value={draft.bio}
+            onChangeText={handleBioChange}
+            style={[styles.input, styles.textarea]}
+            multiline
+            numberOfLines={4}
+            placeholder="say something about your movie taste"
+            placeholderTextColor="rgba(240,228,193,0.5)"
+            maxLength={MAX_BIO}
+            textAlignVertical="top"
           />
-          
-          <View style={styles.modalContent}>
-            {selectedPhotoIndex !== null && (
-              <>
-                <Image 
-                  source={{ uri: draft.photos[selectedPhotoIndex] }} 
-                  style={styles.modalImage}
-                  resizeMode="contain"
-                />
-                
-                <View style={styles.modalControls}>
-                  {selectedPhotoIndex > 0 && (
-                    <TouchableOpacity 
-                      style={styles.navButton}
-                      onPress={() => navigatePhoto('prev')}
-                    >
-                      <Text style={styles.navButtonText}>←</Text>
-                    </TouchableOpacity>
-                  )}
+
+          <TouchableOpacity
+            style={[styles.saveBtn, (!isProfileValid() || saving) && { opacity: 0.6 }]}
+            onPress={save}
+            disabled={!isProfileValid() || saving}
+          >
+            <Text style={styles.saveText}>{saving ? "saving…" : "save changes"}</Text>
+          </TouchableOpacity>
+        </ScrollView>
+
+        <Modal
+          visible={selectedPhotoIndex !== null}
+          transparent={true}
+          animationType="fade"
+          onRequestClose={() => setSelectedPhotoIndex(null)}
+        >
+          <View style={styles.modalOverlay}>
+            <TouchableOpacity 
+              style={styles.modalBackground}
+              activeOpacity={1}
+              onPress={() => setSelectedPhotoIndex(null)}
+            />
+            
+            <View style={styles.modalContent}>
+              {selectedPhotoIndex !== null && (
+                <>
+                  <Image 
+                    source={{ uri: draft.photos[selectedPhotoIndex] }} 
+                    style={styles.modalImage}
+                    resizeMode="contain"
+                  />
                   
-                  <View style={styles.modalActions}>
-                    <TouchableOpacity
-                      style={[
-                        styles.removeButton,
-                        draft.photos.length <= 1 && styles.removeButtonDisabled
-                      ]}
-                      onPress={() => removePhoto(selectedPhotoIndex)}
-                      disabled={draft.photos.length <= 1}
-                    >
-                      <Text style={[
-                        styles.removeButtonText,
-                        draft.photos.length <= 1 && styles.removeButtonTextDisabled
-                      ]}>
-                        remove
-                      </Text>
-                    </TouchableOpacity>
+                  <View style={styles.modalControls}>
+                    {selectedPhotoIndex > 0 && (
+                      <TouchableOpacity 
+                        style={styles.navButton}
+                        onPress={() => navigatePhoto('prev')}
+                      >
+                        <Text style={styles.navButtonText}>←</Text>
+                      </TouchableOpacity>
+                    )}
                     
-                    <TouchableOpacity
-                      style={styles.closeButton}
-                      onPress={() => setSelectedPhotoIndex(null)}
-                    >
-                      <Text style={styles.closeButtonText}>close</Text>
-                    </TouchableOpacity>
+                    <View style={styles.modalActions}>
+                      <TouchableOpacity
+                        style={[
+                          styles.removeButton,
+                          draft.photos.length <= 1 && styles.removeButtonDisabled
+                        ]}
+                        onPress={() => removePhoto(selectedPhotoIndex)}
+                        disabled={draft.photos.length <= 1}
+                      >
+                        <Text style={[
+                          styles.removeButtonText,
+                          draft.photos.length <= 1 && styles.removeButtonTextDisabled
+                        ]}>
+                          remove
+                        </Text>
+                      </TouchableOpacity>
+                      
+                      <TouchableOpacity
+                        style={styles.closeButton}
+                        onPress={() => setSelectedPhotoIndex(null)}
+                      >
+                        <Text style={styles.closeButtonText}>close</Text>
+                      </TouchableOpacity>
+                    </View>
+                    
+                    {selectedPhotoIndex < draft.photos.length - 1 && (
+                      <TouchableOpacity 
+                        style={styles.navButton}
+                        onPress={() => navigatePhoto('next')}
+                      >
+                        <Text style={styles.navButtonText}>→</Text>
+                      </TouchableOpacity>
+                    )}
                   </View>
                   
-                  {selectedPhotoIndex < draft.photos.length - 1 && (
-                    <TouchableOpacity 
-                      style={styles.navButton}
-                      onPress={() => navigatePhoto('next')}
-                    >
-                      <Text style={styles.navButtonText}>→</Text>
-                    </TouchableOpacity>
-                  )}
-                </View>
-                
-                <Text style={styles.photoCounter}>
-                  {selectedPhotoIndex + 1} / {draft.photos.length}
-                </Text>
-              </>
-            )}
+                  <Text style={styles.photoCounter}>
+                    {selectedPhotoIndex + 1} / {draft.photos.length}
+                  </Text>
+                </>
+              )}
+            </View>
           </View>
-        </View>
-      </Modal>
-    </SafeAreaView>
+        </Modal>
+      </SafeAreaView>
+    </GestureHandlerRootView>
   );
 }
 
@@ -513,17 +659,6 @@ const styles = StyleSheet.create({
   headerTitle: { color: '#F0E4C1', fontSize: 18, fontWeight: 'bold', textTransform: 'lowercase' },
 
   content: { padding: 20, paddingBottom: 40 },
-
-  profilePhotoContainer: {
-    alignItems: 'center',
-    marginBottom: 24,
-  },
-  profilePhoto: {
-    width: (width - 60) / 4 - 6,
-    height: (width - 60) / 4 - 6,
-    borderRadius: 8,
-    backgroundColor: 'rgba(240,228,193,0.05)',
-  },
   
   label: {
     color: "#F0E4C1",
@@ -544,23 +679,47 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
 
+  photosContainer: {
+    marginBottom: 8,
+  },
   photosGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 10,
-    marginBottom: 8,
   },
   photoSlot: {
-    width: PHOTO_SIZE - 7,
-    height: PHOTO_SIZE - 7,
+    width: PHOTO_SIZE,
+    height: PHOTO_SIZE,
+  },
+  photoSlotActive: {
+    zIndex: 1000,
+  },
+  photoContent: {
+    width: '100%',
+    height: '100%',
     borderRadius: 12,
     overflow: 'hidden',
     position: 'relative',
+    backgroundColor: 'rgba(240,228,193,0.05)',
+  },
+  photoContentActive: {
+    transform: [{ scale: 1.05 }],
+    shadowColor: '#F0E4C1',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.8,
+    shadowRadius: 15,
+    elevation: 20,
   },
   photoImage: {
     width: '100%',
     height: '100%',
     backgroundColor: 'rgba(240,228,193,0.05)',
+  },
+  placeholderSlot: {
+    backgroundColor: 'rgba(81, 22, 25, 0.5)',
+    borderWidth: 3,
+    borderColor: '#F0E4C1',
+    borderStyle: 'dashed',
+    borderRadius: 12,
   },
   emptyPhotoSlot: {
     backgroundColor: 'rgba(240,228,193,0.05)',
@@ -569,6 +728,7 @@ const styles = StyleSheet.create({
     borderStyle: 'dashed',
     alignItems: 'center',
     justifyContent: 'center',
+    borderRadius: 12,
   },
   plusIcon: {
     color: 'rgba(240,228,193,0.4)',
@@ -592,11 +752,26 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     textTransform: 'lowercase',
   },
+  dragHandle: {
+    position: 'absolute',
+    top: 4,
+    right: 4,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  dragHandleText: {
+    color: '#F0E4C1',
+    fontSize: 16,
+    fontWeight: 'bold',
+    letterSpacing: -2,
+  },
   photoHint: {
     color: 'rgba(240,228,193,0.5)',
     fontSize: 12,
     textAlign: 'center',
-    marginBottom: 4,
+    marginBottom: 12,
     textTransform: 'lowercase',
   },
 
@@ -625,10 +800,10 @@ const styles = StyleSheet.create({
   },
   textarea: { minHeight: 100, textAlignVertical: "top" },
   counter: { color: "rgba(240,228,193,0.6)", fontSize: 13 },
-  row: { flexDirection: "row", gap: 10 },
-  inputHalf: { flex: 1 },
+  row: { flexDirection: "row", justifyContent: "space-between" },
+  inputHalf: { flex: 1, marginHorizontal: 5 },
 
-  genderRow: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
+  genderRow: { flexDirection: "row", flexWrap: "wrap", marginHorizontal: -5 },
   genderPill: {
     borderRadius: 999,
     paddingHorizontal: 16,
@@ -636,6 +811,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(240,228,193,0.3)",
     backgroundColor: "rgba(240,228,193,0.05)",
+    margin: 5,
   },
   genderPillActive: { backgroundColor: "#511619", borderColor: "#511619" },
   genderText: {
@@ -646,7 +822,7 @@ const styles = StyleSheet.create({
   },
   genderTextActive: { color: "#F0E4C1" },
 
-  interestedRow: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
+  interestedRow: { flexDirection: "row", flexWrap: "wrap", marginHorizontal: -5 },
   interestedPill: {
     borderRadius: 999,
     paddingHorizontal: 16,
@@ -654,6 +830,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(240,228,193,0.3)",
     backgroundColor: "rgba(240,228,193,0.05)",
+    margin: 5,
   },
   interestedPillActive: { backgroundColor: "#511619", borderColor: "#511619" },
   interestedText: {
@@ -679,7 +856,6 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
 
-  // Modal styles
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.95)',
@@ -709,7 +885,6 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     width: '100%',
     marginTop: 20,
-    gap: 16,
   },
   navButton: {
     width: 50,
@@ -729,14 +904,15 @@ const styles = StyleSheet.create({
   modalActions: {
     flex: 1,
     flexDirection: 'row',
-    gap: 12,
     justifyContent: 'center',
+    marginHorizontal: 10,
   },
   removeButton: {
     backgroundColor: '#511619',
     paddingVertical: 12,
     paddingHorizontal: 24,
     borderRadius: 8,
+    marginRight: 6,
   },
   removeButtonDisabled: {
     backgroundColor: 'rgba(81,22,25,0.3)',
@@ -757,6 +933,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     borderWidth: 1,
     borderColor: 'rgba(240,228,193,0.3)',
+    marginLeft: 6,
   },
   closeButtonText: {
     color: '#F0E4C1',
