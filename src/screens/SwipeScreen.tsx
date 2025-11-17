@@ -73,12 +73,18 @@ export default function SwipeScreen() {
   const [currentUserProfile, setCurrentUserProfile] = useState<UserProfile | null>(null);
   const [swiping, setSwiping] = useState(false);
   const [showMatchIndicator, setShowMatchIndicator] = useState(false);
+  const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
 
   const profile = profiles[idx];
 
   useEffect(() => {
     loadMatches();
   }, []);
+
+  // Reset photo index when profile changes
+  useEffect(() => {
+    setCurrentPhotoIndex(0);
+  }, [idx]);
 
   const loadMatches = async () => {
     try {
@@ -282,9 +288,11 @@ export default function SwipeScreen() {
   const like = () => !swiping && swipeOut(1);
   const pass = () => !swiping && swipeOut(-1);
 
-  const renderPhoto = ({ item }: { item: string }) => (
-    <Image source={{ uri: item }} style={styles.photo} resizeMode="cover" />
-  );
+  const handlePhotoTap = () => {
+    if (profile?.photos && profile.photos.length > 1) {
+      setCurrentPhotoIndex((prev) => (prev + 1) % profile.photos.length);
+    }
+  };
 
   if (loading) {
     return (
@@ -384,19 +392,39 @@ export default function SwipeScreen() {
             </Text>
           ) : null}
 
-          {/* USER PHOTOS */}
+          {/* USER PHOTOS - Tap to cycle through */}
           {profile.photos?.length > 0 ? (
-            <FlatList
-              data={profile.photos}
-              keyExtractor={(u, i) => `${u}-${i}`}
-              renderItem={renderPhoto}
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              pagingEnabled
-              snapToAlignment="center"
-              decelerationRate="fast"
-              contentContainerStyle={{ gap: 10, paddingVertical: 8 }}
-            />
+            <TouchableOpacity 
+              activeOpacity={0.9} 
+              onPress={handlePhotoTap}
+              style={styles.photoContainer}
+            >
+              <Image 
+                source={{ uri: profile.photos[currentPhotoIndex] }} 
+                style={styles.photo} 
+                resizeMode="cover" 
+              />
+              {/* Photo indicator dots */}
+              {profile.photos.length > 1 && (
+                <View style={styles.photoIndicatorContainer}>
+                  {profile.photos.map((_, index) => (
+                    <View
+                      key={index}
+                      style={[
+                        styles.photoIndicatorDot,
+                        index === currentPhotoIndex && styles.photoIndicatorDotActive,
+                      ]}
+                    />
+                  ))}
+                </View>
+              )}
+              {/* Tap hint for multiple photos */}
+              {profile.photos.length > 1 && currentPhotoIndex === 0 && (
+                <View style={styles.tapHint}>
+                  <Text style={styles.tapHintText}>tap to see more photos</Text>
+                </View>
+              )}
+            </TouchableOpacity>
           ) : (
             <View style={styles.noPhotosPlaceholder}>
               <Text style={styles.noPhotosText}>no photos added</Text>
@@ -555,11 +583,57 @@ const styles = StyleSheet.create({
     textTransform: "lowercase",
   },
 
+  photoContainer: {
+    marginVertical: 8,
+    position: 'relative',
+  },
+
   photo: {
     width: CARD_W - 36,
     height: 280,
     borderRadius: 14,
     backgroundColor: "#0b1220",
+  },
+
+  photoIndicatorContainer: {
+    position: 'absolute',
+    bottom: 12,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 6,
+  },
+
+  photoIndicatorDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: 'rgba(240,228,193,0.4)',
+  },
+
+  photoIndicatorDotActive: {
+    backgroundColor: '#F0E4C1',
+    width: 20,
+  },
+
+  tapHint: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    backgroundColor: 'rgba(17,28,42,0.8)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(240,228,193,0.3)',
+  },
+
+  tapHintText: {
+    color: '#F0E4C1',
+    fontSize: 11,
+    fontWeight: '600',
+    textTransform: 'lowercase',
   },
 
   noPhotosPlaceholder: {

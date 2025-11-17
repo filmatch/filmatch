@@ -254,10 +254,10 @@ export default function ProfileScreen() {
 
         {/* Recent Diary */}
         <View style={styles.section}>
-          <View style={styles.sectionHeader}>
+        <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>recent diary entries</Text>
             <Text style={styles.sectionMeta}>
-              {totalWatches > 0 ? `last ${Math.min(totalWatches, 5)}` : 'none yet'}
+              {totalWatches > 0 ? `last ${Math.min(totalWatches, 4)}` : 'none yet'}
             </Text>
             <TouchableOpacity onPress={handleRefresh} style={styles.refreshButton}>
               <Text style={styles.refreshButtonText}>refresh</Text>
@@ -271,6 +271,7 @@ export default function ProfileScreen() {
               (userProfile.recentWatches || [])
                 .slice()
                 .reverse()
+                .slice(0, 4)
                 .map((movie, index) => {
                   const k = keyFor(movie.title, movie.year as any);
                   const poster = posterCache[k];
@@ -374,7 +375,7 @@ export default function ProfileScreen() {
             <Text style={styles.loadingText}>fetching posters...</Text>
           </View>
         )}
-      </ScrollView>
+</ScrollView>
     </SafeAreaView>
   );
 }
@@ -400,11 +401,11 @@ const styles = StyleSheet.create({
   profileHeader: { paddingHorizontal: 20, paddingVertical: 30, borderBottomWidth: 1, borderBottomColor: 'rgba(240, 228, 193, 0.1)' },
   profileInfo: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 12 },
 
-  profilePhotoContainer: { 
+profilePhotoContainer: { 
     width: PROFILE_PHOTO_SIZE, 
     height: PROFILE_PHOTO_SIZE, 
     marginRight: 16,
-    borderRadius: 8,
+    borderRadius: PROFILE_PHOTO_SIZE / 2,
     overflow: 'hidden',
   },
   profilePhoto: { 

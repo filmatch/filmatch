@@ -1,5 +1,5 @@
 // src/screens/MatchesScreen.tsx
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState, useRef } from 'react';
 import {
   SafeAreaView,
   View,
@@ -81,6 +81,8 @@ export default function MatchesScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [currentUserProfile, setCurrentUserProfile] = useState<UserProfile | null>(null);
+  const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
+  const photoScrollRef = useRef<FlatList>(null);
 
   useEffect(() => {
     loadCurrentUserProfile();
@@ -127,7 +129,7 @@ export default function MatchesScreen() {
               avatar: otherUserProfile.photos?.[0],
               lastMsg: data.lastMessage || 'no messages yet',
               lastMessageAt: data.lastMessageTime?.toMillis() || data.createdAt?.toMillis() || Date.now(),
-              unread: 0, // TODO: Implement unread count
+              unread: 0,
               otherUserId,
             });
             
@@ -262,16 +264,17 @@ export default function MatchesScreen() {
 
   const onPressNewMatch = (item: NewMatch) => {
     setSelected(item);
+    setCurrentPhotoIndex(0);
     setModalOpen(true);
   };
 
- const onStartChat = async () => {
-  if (!selected || !currentUser || !currentUserProfile) return;
-  const sortedIds = [currentUser.uid, selected.uid].sort();
-  const chatId = `chat_${sortedIds[0]}_${sortedIds[1]}`;
-  setModalOpen(false);
-  navigation.navigate('Chat', { chatId });
-};
+  const onStartChat = async () => {
+    if (!selected || !currentUser || !currentUserProfile) return;
+    const sortedIds = [currentUser.uid, selected.uid].sort();
+    const chatId = `chat_${sortedIds[0]}_${sortedIds[1]}`;
+    setModalOpen(false);
+    navigation.navigate('Chat', { chatId });
+  };
 
   const onRemoveMatch = () => {
     if (!selected) return;
@@ -310,6 +313,12 @@ export default function MatchesScreen() {
     }
     return [];
   }, [selected]);
+
+  const handlePhotoScroll = (event: any) => {
+    const offsetX = event.nativeEvent.contentOffset.x;
+    const index = Math.round(offsetX / SCREEN_WIDTH);
+    setCurrentPhotoIndex(index);
+  };
 
   if (loading) {
     return (
@@ -439,30 +448,54 @@ export default function MatchesScreen() {
       {/* DETAILED PROFILE MODAL */}
       <Modal visible={modalOpen} transparent animationType="slide" onRequestClose={() => setModalOpen(false)}>
         <View style={styles.modalOverlay}>
-          <ScrollView 
-            style={styles.modalCard}
-            showsVerticalScrollIndicator={false}
-            contentContainerStyle={{ paddingBottom: 40 }}
-          >
-            {/* Photos */}
-            {selected?.photos && selected.photos.length > 0 ? (
-              <FlatList
-                data={selected.photos}
-                horizontal
-                pagingEnabled
-                showsHorizontalScrollIndicator={false}
-                renderItem={({ item }) => (
-                  <Image source={{ uri: item }} style={styles.modalPhoto} resizeMode="cover" />
-                )}
-                keyExtractor={(item, idx) => `photo-${idx}`}
-              />
-            ) : (
-              <View style={[styles.modalPhoto, styles.photoPlaceholder]}>
-                <Text style={[styles.placeholderText, { fontSize: 40 }]}>
-                  {selected?.name?.[0]?.toUpperCase() ?? '?'}
-                </Text>
-              </View>
-            )}
+          <View style={styles.modalCard}>
+            <ScrollView 
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={{ paddingBottom: 40 }}
+            >
+              {/* Photos with swipe */}
+              {selected?.photos && selected.photos.length > 0 ? (
+                <View style={styles.photoContainer}>
+                  <FlatList
+                    ref={photoScrollRef}
+                    data={selected.photos}
+                    horizontal
+                    pagingEnabled
+                    showsHorizontalScrollIndicator={false}
+                    onScroll={handlePhotoScroll}
+                    scrollEventThrottle={16}
+                    renderItem={({ item }) => (
+                      <Image 
+                        source={{ uri: item }} 
+                        style={styles.modalPhoto} 
+                        resizeMode="cover" 
+                      />
+                    )}
+                    keyExtractor={(item, idx) => `photo-${idx}`}
+                    contentContainerStyle={{ gap: 10 }}
+                  />
+                  {/* Photo indicators */}
+                  {selected.photos.length > 1 && (
+                    <View style={styles.photoIndicators}>
+                      {selected.photos.map((_, idx) => (
+                        <View
+                          key={idx}
+                          style={[
+                            styles.photoIndicator,
+                            currentPhotoIndex === idx && styles.photoIndicatorActive
+                          ]}
+                        />
+                      ))}
+                    </View>
+                  )}
+                </View>
+              ) : (
+                <View style={[styles.modalPhoto, styles.photoPlaceholder, { marginHorizontal: 18, marginVertical: 8 }]}>
+                  <Text style={[styles.placeholderText, { fontSize: 40 }]}>
+                    {selected?.name?.[0]?.toUpperCase() ?? '?'}
+                  </Text>
+                </View>
+              )}
 
               {/* Header */}
               <View style={styles.modalHeader}>
@@ -532,7 +565,7 @@ export default function MatchesScreen() {
                 <View style={styles.section}>
                   <Text style={styles.sectionLabel}>recent watches</Text>
                   <View style={styles.genresWrap}>
-                    {selected.recentWatches.map((r) => (
+                    {selected.recentWatches.slice(0, 6).map((r) => (
                       <View key={r.id} style={styles.chip}>
                         <Text style={styles.chipText}>{r.title.toLowerCase()}</Text>
                       </View>
@@ -542,37 +575,35 @@ export default function MatchesScreen() {
               )}
 
               {/* Buttons */}
-<View style={styles.modalButtons}>
-  <TouchableOpacity
-    style={[styles.modalBtn, styles.secondaryBtn]}
-    onPress={onRemoveMatch}
-  >
-    <Text style={styles.modalBtnText}>remove match</Text>
-  </TouchableOpacity>
+              <View style={styles.modalButtons}>
+                <TouchableOpacity
+                  style={[styles.modalBtn, styles.secondaryBtn]}
+                  onPress={onRemoveMatch}
+                >
+                  <Text style={styles.modalBtnText}>remove match</Text>
+                </TouchableOpacity>
 
-  <TouchableOpacity
-    style={[styles.modalBtn, styles.primaryBtn]}
-    onPress={onStartChat}
-  >
-    <Text style={styles.modalBtnText}>start chat</Text>
-  </TouchableOpacity>
-</View>
+                <TouchableOpacity
+                  style={[styles.modalBtn, styles.primaryBtn]}
+                  onPress={onStartChat}
+                >
+                  <Text style={styles.modalBtnText}>start chat</Text>
+                </TouchableOpacity>
+              </View>
 
-<TouchableOpacity
-  onPress={() => setModalOpen(false)}
-  style={styles.closeTap}
->
-  <Text style={styles.closeText}>close</Text>
-</TouchableOpacity>
-
-</ScrollView>
-</View>
-
-</Modal>
-</SafeAreaView>
-);
+              <TouchableOpacity
+                onPress={() => setModalOpen(false)}
+                style={styles.closeTap}
+              >
+                <Text style={styles.closeText}>close</Text>
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+    </SafeAreaView>
+  );
 }
-
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#111C2A' },
@@ -595,10 +626,10 @@ const styles = StyleSheet.create({
   matchPhoto: {
     width: 72,
     height: 72,
-    borderRadius: 12,
+    borderRadius: 36,
     backgroundColor: 'rgba(240,228,193,0.08)',
-    borderWidth: 1,
-    borderColor: 'rgba(240,228,193,0.18)',
+    borderWidth: 2,
+    borderColor: 'rgba(240,228,193,0.2)',
     marginBottom: 6,
   },
   matchName: { color: '#F0E4C1', fontSize: 12, textAlign: 'center', textTransform: 'lowercase' },
@@ -639,9 +670,11 @@ const styles = StyleSheet.create({
   chatAvatar: {
     width: 52,
     height: 52,
-    borderRadius: 12,
+    borderRadius: 26,
     marginRight: 12,
     backgroundColor: 'rgba(240,228,193,0.08)',
+    borderWidth: 2,
+    borderColor: 'rgba(240,228,193,0.15)',
   },
   chatName: { color: '#F0E4C1', fontWeight: '700', fontSize: 16, textTransform: 'lowercase' },
   chatLast: { color: '#F0E4C1', opacity: 0.75, fontSize: 13, marginTop: 2, textTransform: 'lowercase' },
@@ -675,18 +708,36 @@ const styles = StyleSheet.create({
     backgroundColor: '#111C2A',
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
-    borderWidth: 1,
-    borderColor: 'rgba(240,228,193,0.2)',
-    paddingBottom: 20,
   },
-  photoScroll: {
-    width: SCREEN_WIDTH,
-    height: 400,
+  photoContainer: {
+    paddingHorizontal: 18,
+    paddingTop: 18,
+    paddingBottom: 8,
   },
   modalPhoto: { 
-    width: SCREEN_WIDTH, 
-    height: 400, 
+    width: SCREEN_WIDTH - 72, 
+    height: 280, 
     backgroundColor: 'rgba(240,228,193,0.1)',
+    borderRadius: 14,
+  },
+  photoIndicators: {
+    position: 'absolute',
+    top: 16,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  photoIndicator: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: 'rgba(240,228,193,0.3)',
+  },
+  photoIndicatorActive: {
+    backgroundColor: '#F0E4C1',
+    width: 24,
   },
   modalHeader: { 
     flexDirection: 'row', 
@@ -773,13 +824,16 @@ const styles = StyleSheet.create({
 
   posterRow: { 
     flexDirection: 'row', 
-    gap: 10,
-    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    width: '100%',
   },
-  posterTile: { width: 80 },
+  posterTile: { 
+    flex: 1,
+    marginRight: 10,
+  },
   posterImg: { 
-    width: 80, 
-    height: 120, 
+    width: '100%', 
+    aspectRatio: 2/3,
     borderRadius: 8, 
     backgroundColor: 'rgba(240,228,193,0.1)',
   },
@@ -843,4 +897,5 @@ const styles = StyleSheet.create({
     color: 'rgba(240,228,193,0.5)',
     fontSize: 9,
     textAlign: 'center',
-  },})
+  },
+});

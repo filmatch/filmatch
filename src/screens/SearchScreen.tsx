@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import {
   StyleSheet,
   Text,
@@ -12,9 +12,13 @@ import {
   Alert,
   RefreshControl,
   Dimensions,
+  Keyboard,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { useNavigation } from '@react-navigation/native';
+import { getAuth } from 'firebase/auth';
+import { doc, getDoc } from 'firebase/firestore';
+import { db } from '../../config/firebase';
 import TMDbService, { Movie } from '../services/TMDbService';
 import debounce from 'lodash.debounce';
 
@@ -77,20 +81,71 @@ const Dot = ({ color = 'rgba(240, 228, 193, 0.8)' }: { color?: string }) => (
   <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: color, marginRight: 4 }} />
 );
 
+// Enhanced Movie type with user data
+interface MovieWithUserData extends Movie {
+  userRating?: number;
+  userStatus?: string;
+}
+
 export default function SearchScreen() {
   const navigation = useNavigation<any>();
+  const auth = getAuth();
+  const currentUser = auth.currentUser;
 
   const [query, setQuery] = useState('');
-  const [searchResults, setSearchResults] = useState<Movie[]>([]);
-  const [trendingMovies, setTrendingMovies] = useState<Movie[]>([]);
-  const [topRatedMovies, setTopRatedMovies] = useState<Movie[]>([]);
+  const [searchResults, setSearchResults] = useState<MovieWithUserData[]>([]);
+  const [trendingMovies, setTrendingMovies] = useState<MovieWithUserData[]>([]);
+  const [topRatedMovies, setTopRatedMovies] = useState<MovieWithUserData[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
   const [discoverLoading, setDiscoverLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
+  // Use ref to track if we're in search mode without causing re-renders
+  const isSearchMode = query.trim().length >= 1;
+  
+  // Ref to maintain TextInput focus
+  const searchInputRef = useRef<TextInput>(null);
+
   useEffect(() => {
     loadDiscover();
   }, []);
+
+  // Load user data for movies to check if already rated
+  const enrichMoviesWithUserData = useCallback(async (movies: Movie[]): Promise<MovieWithUserData[]> => {
+    if (!currentUser) return movies;
+
+    try {
+      const enrichedMovies = await Promise.all(
+        movies.map(async (movie) => {
+          const movieId = (movie.id ?? movie.tmdb_id).toString();
+          const userMovieRef = doc(db, 'users', currentUser.uid, 'movies', movieId);
+          
+          try {
+            const userMovieDoc = await getDoc(userMovieRef);
+            
+            if (userMovieDoc.exists()) {
+              const userData = userMovieDoc.data();
+              return {
+                ...movie,
+                userRating: userData.rating || undefined,
+                userStatus: userData.status || undefined,
+              };
+            }
+          } catch (error) {
+            // Silently fail for individual movie - just return original
+            console.log(`Could not fetch user data for movie ${movieId}`);
+          }
+          
+          return movie;
+        })
+      );
+      
+      return enrichedMovies;
+    } catch (error) {
+      console.error('Error enriching movies with user data:', error);
+      return movies; // Return original movies if enrichment fails
+    }
+  }, [currentUser]);
 
   const loadDiscover = async () => {
     try {
@@ -98,8 +153,18 @@ export default function SearchScreen() {
         TMDbService.getTrendingMovies('week'),
         TMDbService.getTopRatedMovies(),
       ]);
-      setTrendingMovies((trending ?? []).slice(0, 20));
-      setTopRatedMovies((topRated ?? []).slice(0, 21));
+      
+      const trendingSlice = (trending ?? []).slice(0, 20);
+      const topRatedSlice = (topRated ?? []).slice(0, 21);
+      
+      // Enrich with user data
+      const [enrichedTrending, enrichedTopRated] = await Promise.all([
+        enrichMoviesWithUserData(trendingSlice),
+        enrichMoviesWithUserData(topRatedSlice),
+      ]);
+      
+      setTrendingMovies(enrichedTrending);
+      setTopRatedMovies(enrichedTopRated);
     } catch {
       Alert.alert('error', 'failed to load movies.');
     } finally {
@@ -113,8 +178,9 @@ export default function SearchScreen() {
     setRefreshing(false);
   };
 
-  const debouncedSearch = useCallback(
-    debounce(async (q: string) => {
+  // Create debounced search function once
+  const debouncedSearchRef = useRef(
+    debounce(async (q: string, enrich: (movies: Movie[]) => Promise<MovieWithUserData[]>) => {
       if (!q.trim() || q.trim().length < 1) {
         setSearchResults([]);
         setSearchLoading(false);
@@ -122,43 +188,46 @@ export default function SearchScreen() {
       }
       try {
         const res = await TMDbService.searchMovies(q);
-        setSearchResults(res ?? []);
+        const enrichedResults = await enrich(res ?? []);
+        setSearchResults(enrichedResults);
       } catch {
         Alert.alert('error', 'search failed.');
         setSearchResults([]);
       } finally {
         setSearchLoading(false);
       }
-    }, 600),
-    []
-  );
+    }, 600)
+  ).current;
 
   useEffect(() => {
     return () => {
-      // @ts-ignore
-      debouncedSearch.cancel?.();
+      debouncedSearchRef.cancel?.();
     };
-  }, [debouncedSearch]);
+  }, []);
 
   const handleSearchChange = (t: string) => {
     setQuery(t);
     if (t.trim().length >= 1) {
       setSearchLoading(true);
+      debouncedSearchRef(t, enrichMoviesWithUserData);
+    } else {
+      setSearchResults([]);
+      setSearchLoading(false);
     }
-    debouncedSearch(t);
   };
 
-  const clearSearch = () => {
+  const clearSearch = useCallback(() => {
     setQuery('');
     setSearchResults([]);
     setSearchLoading(false);
-  };
+  }, []);
 
-  const openMovie = (m: Movie) => navigation.navigate('MovieDetail', { movie: m });
+  const openMovie = useCallback((m: MovieWithUserData) => {
+    Keyboard.dismiss();
+    navigation.navigate('MovieDetail', { movie: m });
+  }, [navigation]);
 
-  // Helper to pad grid data to complete rows of 3
- 
-  const renderDiscoverCard = ({ item }: { item: Movie }) => {
+  const renderDiscoverCard = useCallback(({ item }: { item: MovieWithUserData }) => {
     // Render invisible placeholder for grid alignment
     if (item.id.toString().startsWith('placeholder')) {
       return <View style={{ width: CARD_W }} />;
@@ -177,6 +246,11 @@ export default function SearchScreen() {
             <PosterPlaceholder />
           </View>
         )}
+        {item.userRating && item.userRating > 0 && (
+          <View style={styles.ratedBadge}>
+            <Text style={styles.ratedBadgeText}>â˜… {item.userRating}</Text>
+          </View>
+        )}
         <View style={styles.cardInfo}>
           <Text style={styles.cardTitle} numberOfLines={2}>{item.title}</Text>
           <Text style={styles.cardYear}>
@@ -185,9 +259,9 @@ export default function SearchScreen() {
         </View>
       </TouchableOpacity>
     );
-  };
+  }, [openMovie]);
 
-  const renderSearchCard = ({ item }: { item: Movie }) => {
+  const renderSearchCard = useCallback(({ item }: { item: MovieWithUserData }) => {
     // Render invisible placeholder for grid alignment
     if (item.id.toString().startsWith('placeholder')) {
       return <View style={{ width: CARD_W }} />;
@@ -206,6 +280,11 @@ export default function SearchScreen() {
             <PosterPlaceholder />
           </View>
         )}
+        {item.userRating && item.userRating > 0 && (
+          <View style={styles.ratedBadge}>
+            <Text style={styles.ratedBadgeText}>â˜… {item.userRating}</Text>
+          </View>
+        )}
         <View style={styles.searchCardInfo}>
           <Text style={styles.searchCardTitle} numberOfLines={2}>{item.title}</Text>
           <Text style={styles.searchCardYear}>
@@ -220,9 +299,9 @@ export default function SearchScreen() {
         </View>
       </TouchableOpacity>
     );
-  };
+  }, [openMovie]);
 
-  const renderTrendingCard = ({ item }: { item: Movie }) => (
+  const renderTrendingCard = useCallback(({ item }: { item: MovieWithUserData }) => (
     <TouchableOpacity style={styles.trendingCard} onPress={() => openMovie(item)}>
       {item.poster_path ? (
         <Image
@@ -235,137 +314,147 @@ export default function SearchScreen() {
           <PosterPlaceholder />
         </View>
       )}
+      {item.userRating && item.userRating > 0 && (
+        <View style={styles.trendingRatedBadge}>
+          <Text style={styles.ratedBadgeText}>â˜… {item.userRating}</Text>
+        </View>
+      )}
       <Text style={styles.trendingTitle} numberOfLines={2}>{item.title}</Text>
     </TouchableOpacity>
-  );
+  ), [openMovie]);
 
-  // SEARCH MODE
-  if (query.trim() && query.trim().length >= 1) {
-    return (
-      <SafeAreaView style={styles.container}>
-        <StatusBar style="light" />
-
-        {/* Search Header */}
-        <View style={styles.searchHeader}>
-          <View style={styles.searchInputContainer}>
-            <TextInput
-              value={query}
-              onChangeText={handleSearchChange}
-              placeholder="search for movies..."
-              placeholderTextColor="rgba(240, 228, 193, 0.5)"
-              style={styles.searchInput}
-              autoCapitalize="none"
-              autoFocus
-            />
-            {query.length > 0 && (
-              <TouchableOpacity onPress={clearSearch} style={styles.clearButton}>
-                <CrossIcon />
-              </TouchableOpacity>
-            )}
-          </View>
-          {searchLoading && <ActivityIndicator size="small" color="#F0E4C1" style={styles.searchIndicator} />}
-        </View>
-
-        {/* Search Results */}
-        {searchLoading ? (
-          <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color="#F0E4C1" />
-            <Text style={styles.loadingText}>searching...</Text>
-          </View>
-        ) : searchResults.length > 0 ? (
-          <>
-            <Text style={styles.resultsCount}>
-              {searchResults.length} result{searchResults.length !== 1 ? 's' : ''} found
-            </Text>
-            <FlatList
-              data={searchResults}
-              keyExtractor={(i) => `search-${i.id}`}
-              renderItem={renderSearchCard}
-              numColumns={3}
-              columnWrapperStyle={styles.searchRow}
-              contentContainerStyle={styles.searchResults}
-              showsVerticalScrollIndicator={false}
-            />
-          </>
-        ) : (
-          <View style={styles.noResultsContainer}>
-            <Magnifier color="rgba(240,228,193,0.7)" />
-            <Text style={styles.noResultsText}>no movies found</Text>
-            <Text style={styles.noResultsSubtext}>try a different search term</Text>
-          </View>
-        )}
-      </SafeAreaView>
-    );
-  }
-
-  // DISCOVER MODE
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar style="light" />
 
-      <FlatList
-        data={topRatedMovies}
-        keyExtractor={(i) => `toprated-${i.id}`}
-        numColumns={3}
-        renderItem={renderDiscoverCard}
-        columnWrapperStyle={styles.discoverRow}
-        ListHeaderComponent={
-          <View>
-            {/* Header */}
-            <View style={styles.header}>
-              <Text style={styles.heading}>discover movies</Text>
-              <Text style={styles.subheading}>find your next favorite film</Text>
-            </View>
-
-            {/* Search Box */}
-            <View style={styles.searchContainer}>
-              <TextInput
-                value={query}
-                onChangeText={handleSearchChange}
-                placeholder="search for movies..."
-                placeholderTextColor="rgba(240, 228, 193, 0.5)"
-                style={styles.discoverSearchInput}
-                autoCapitalize="none"
-              />
-              <View style={styles.searchIconContainer}>
-                <Magnifier color="rgba(240,228,193,0.7)" />
-              </View>
-            </View>
-
-            {/* Trending Section */}
-            {discoverLoading ? (
-              <View style={styles.loadingContainer}>
-                <ActivityIndicator size="large" color="#F0E4C1" />
-              </View>
-            ) : (
-              <View style={styles.trendingSection}>
-                <Text style={styles.sectionTitle}>trending this week</Text>
-                <FlatList
-                  data={trendingMovies}
-                  horizontal
-                  keyExtractor={(i) => `trending-${i.id}`}
-                  renderItem={renderTrendingCard}
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={styles.trendingList}
-                />
-              </View>
-            )}
-
-            {/* Top Rated Section Header */}
-            <Text style={[styles.sectionTitle, styles.popularTitle]}>all-time popular movies</Text>
-          </View>
-        }
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={onRefresh}
-            tintColor="#F0E4C1"
-            colors={['#F0E4C1']}
+      {/* Always render search header, control visibility with display: none */}
+      <View style={[styles.searchHeader, !isSearchMode && { display: 'none' }]}>
+        <View style={styles.searchInputContainer}>
+          <TextInput
+            value={query}
+            onChangeText={handleSearchChange}
+            placeholder="search for movies..."
+            placeholderTextColor="rgba(240, 228, 193, 0.5)"
+            style={styles.searchInput}
+            autoCapitalize="none"
+            autoCorrect={false}
+            returnKeyType="search"
+            blurOnSubmit={false}
           />
-        }
-        contentContainerStyle={styles.discoverContent}
-        showsVerticalScrollIndicator={false}
-      />
+          {query.length > 0 && (
+            <TouchableOpacity onPress={clearSearch} style={styles.clearButton}>
+              <CrossIcon />
+            </TouchableOpacity>
+          )}
+        </View>
+        {searchLoading && <ActivityIndicator size="small" color="#F0E4C1" style={styles.searchIndicator} />}
+      </View>
+
+      {/* Conditional content based on search mode */}
+      {isSearchMode ? (
+        // SEARCH MODE
+        <>
+          {searchLoading ? (
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator size="large" color="#F0E4C1" />
+              <Text style={styles.loadingText}>searching...</Text>
+            </View>
+          ) : searchResults.length > 0 ? (
+            <>
+              <Text style={styles.resultsCount}>
+                {searchResults.length} result{searchResults.length !== 1 ? 's' : ''} found
+              </Text>
+              <FlatList
+                data={searchResults}
+                keyExtractor={(i) => `search-${i.id}`}
+                renderItem={renderSearchCard}
+                numColumns={3}
+                columnWrapperStyle={styles.searchRow}
+                contentContainerStyle={styles.searchResults}
+                showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
+                removeClippedSubviews={false}
+              />
+            </>
+          ) : (
+            <View style={styles.noResultsContainer}>
+              <Magnifier color="rgba(240,228,193,0.7)" />
+              <Text style={styles.noResultsText}>no movies found</Text>
+              <Text style={styles.noResultsSubtext}>try a different search term</Text>
+            </View>
+          )}
+        </>
+      ) : (
+        // DISCOVER MODE
+        <FlatList
+          data={topRatedMovies}
+          keyExtractor={(i) => `toprated-${i.id}`}
+          numColumns={3}
+          renderItem={renderDiscoverCard}
+          columnWrapperStyle={styles.discoverRow}
+          ListHeaderComponent={
+            <View>
+              {/* Header */}
+              <View style={styles.header}>
+                <Text style={styles.heading}>discover movies</Text>
+                <Text style={styles.subheading}>find your next favorite film</Text>
+              </View>
+
+              {/* Search Box */}
+              <View style={styles.searchContainer}>
+                <TextInput
+                  value={query}
+                  onChangeText={handleSearchChange}
+                  placeholder="search for movies..."
+                  placeholderTextColor="rgba(240, 228, 193, 0.5)"
+                  style={styles.discoverSearchInput}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  returnKeyType="search"
+                  blurOnSubmit={false}
+                />
+                <View style={styles.searchIconContainer}>
+                  <Magnifier color="rgba(240,228,193,0.7)" />
+                </View>
+              </View>
+
+              {/* Trending Section */}
+              {discoverLoading ? (
+                <View style={styles.loadingContainer}>
+                  <ActivityIndicator size="large" color="#F0E4C1" />
+                </View>
+              ) : (
+                <View style={styles.trendingSection}>
+                  <Text style={styles.sectionTitle}>trending this week</Text>
+                  <FlatList
+                    data={trendingMovies}
+                    horizontal
+                    keyExtractor={(i) => `trending-${i.id}`}
+                    renderItem={renderTrendingCard}
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={styles.trendingList}
+                  />
+                </View>
+              )}
+
+              {/* Top Rated Section Header */}
+              <Text style={[styles.sectionTitle, styles.popularTitle]}>all-time popular movies</Text>
+            </View>
+          }
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              tintColor="#F0E4C1"
+              colors={['#F0E4C1']}
+            />
+          }
+          contentContainerStyle={styles.discoverContent}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          removeClippedSubviews={false}
+        />
+      )}
     </SafeAreaView>
   );
 }
@@ -476,6 +565,7 @@ const styles = StyleSheet.create({
   trendingCard: {
     width: 120,
     marginRight: 12,
+    position: 'relative',
   },
   trendingPoster: {
     width: 120,
@@ -497,6 +587,17 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     textAlign: 'center',
   },
+  trendingRatedBadge: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    backgroundColor: 'rgba(81, 22, 25, 0.9)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(240, 228, 193, 0.3)',
+  },
 
   // Discover cards (3-column grid)
   discoverRow: {
@@ -509,6 +610,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(240,228,193,0.06)',
     borderRadius: 12,
     overflow: 'hidden',
+    position: 'relative',
   },
   cardPoster: {
     width: '100%',
@@ -529,6 +631,25 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
 
+  // Rated badge
+  ratedBadge: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    backgroundColor: 'rgba(81, 22, 25, 0.9)',
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(240, 228, 193, 0.3)',
+    zIndex: 1,
+  },
+  ratedBadgeText: {
+    color: '#F0E4C1',
+    fontSize: 10,
+    fontWeight: '600',
+  },
+
   // Search result cards (3-column grid like discover)
   searchRow: {
     justifyContent: 'space-evenly',
@@ -543,6 +664,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(240,228,193,0.08)',
     borderRadius: 12,
     overflow: 'hidden',
+    position: 'relative',
   },
   searchCardPoster: {
     width: '100%',

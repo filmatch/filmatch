@@ -14,7 +14,7 @@ import {
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { useNavigation, useRoute } from '@react-navigation/native';
-import type { StackNavigationProp, StackScreenProps } from '@react-navigation/stack';
+import type { StackNavigationProp } from '@react-navigation/stack';
 import { getAuth } from 'firebase/auth';
 import { doc, setDoc, getDoc, updateDoc } from 'firebase/firestore';
 import { db } from '../../config/firebase';
@@ -31,6 +31,7 @@ type RootStackParamList = {
 
 type MovieDetailRouteProp = { params: { movie: MovieWithUserData } };
 type MovieDetailNavProp = StackNavigationProp<RootStackParamList, 'MovieDetail'>;
+
 export default function MovieDetailScreen() {
   const navigation = useNavigation<MovieDetailNavProp>();
   const route = useRoute<MovieDetailRouteProp>();
@@ -44,6 +45,11 @@ export default function MovieDetailScreen() {
   const [isLoading, setIsLoading] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
   const [loadingDetails, setLoadingDetails] = useState(true);
+  
+  // Track original state from database
+  const [originalRating, setOriginalRating] = useState<number>(0);
+  const [originalStatus, setOriginalStatus] = useState<string | null>(null);
+  const [existsInDatabase, setExistsInDatabase] = useState(false);
 
   useEffect(() => {
     loadMovieDetails();
@@ -64,12 +70,11 @@ export default function MovieDetailScreen() {
   // ---- data loaders ----
   const loadMovieDetails = async () => {
     try {
-const movieId = Number(movie.tmdb_id || movie.id);
+      const movieId = Number(movie.tmdb_id || movie.id);
       const details = await TMDbService.getMovieDetails(movieId);
       if (details) {
-        // keep only fields that exist in your Movie/MovieWithUserData types
         const merged: MovieWithUserData = {
-          ...(details as Movie), // normalized by your service
+          ...(details as Movie),
           userRating: movie.userRating || undefined,
           userStatus: movie.userStatus || undefined,
         };
@@ -86,20 +91,41 @@ const movieId = Number(movie.tmdb_id || movie.id);
   const loadUserData = async () => {
     if (!currentUser) return;
     try {
-      const userMovieDoc = await getDoc(
-        doc(db, 'users', currentUser.uid, 'movies', (movie.id ?? movie.tmdb_id).toString())
-      );
+      const movieId = (movie.id ?? movie.tmdb_id).toString();
+      
+      // Check if movie exists in user's subcollection
+      const userMovieRef = doc(db, 'users', currentUser.uid, 'movies', movieId);
+      const userMovieDoc = await getDoc(userMovieRef);
+      
       if (userMovieDoc.exists()) {
         const userData = userMovieDoc.data();
+        const dbRating = userData.rating || 0;
+        const dbStatus = userData.status || null;
+        
+        // Store original database values
+        setOriginalRating(dbRating);
+        setOriginalStatus(dbStatus);
+        setExistsInDatabase(true);
+        
+        // Set current state
         setMovie((prev) => ({
           ...prev,
-          userRating: userData.rating || undefined,
-          userStatus: userData.status || undefined,
+          userRating: dbRating || undefined,
+          userStatus: dbStatus || undefined,
         }));
-        setTempRating(userData.rating || 0);
+        setTempRating(dbRating);
+        
+        console.log('Movie already in user profile:', userData);
+      } else {
+        // Movie doesn't exist in database
+        setOriginalRating(0);
+        setOriginalStatus(null);
+        setExistsInDatabase(false);
+        console.log('Movie not yet in user profile');
       }
     } catch (error) {
       console.error('Error loading user movie data:', error);
+      // Don't show error to user - this is expected for new movies
     }
   };
 
@@ -108,131 +134,137 @@ const movieId = Number(movie.tmdb_id || movie.id);
     const newRating = tempRating === rating ? 0 : rating;
     setTempRating(newRating);
     setHasChanges(true);
-    if (newRating > 0) setMovie((p) => ({ ...p, userStatus: 'watched' }));
   };
 
-  const handleStatusChange = (status: 'watched' | 'watchlist') => {
-    const newStatus = movie.userStatus === status ? null : status;
-    setMovie((p) => ({ ...p, userStatus: newStatus || undefined }));
-    setHasChanges(true);
-  };
-
-const handleSave = async () => {
-  if (!currentUser) {
-    Alert.alert('error', 'log in first');
-    return;
-  }
-  setIsLoading(true);
-  try {
-    const finalStatus = tempRating > 0 ? 'watched' : movie.userStatus ?? null;
-
-    // 1. Save to individual movie document (existing code)
-    const userMovieRef = doc(db, 'users', currentUser.uid, 'movies', (movie.id ?? movie.tmdb_id).toString());
-    await setDoc(
-      userMovieRef,
-      {
-        movieId: movie.id ?? movie.tmdb_id,
-        tmdbId: movie.tmdb_id || movie.id,
-        title: movie.title,
-        year: movie.year,
-        rating: tempRating || null,
-        status: finalStatus,
-        posterPath: movie.poster_path,
-        genres: movie.genres ?? [],
-        updatedAt: new Date(),
-      },
-      { merge: true }
-    );
-
-    // 2. Update main user document arrays (NEW CODE)
-    const userRef = doc(db, 'users', currentUser.uid);
-    const userDoc = await getDoc(userRef);
-    
-    if (userDoc.exists()) {
-      const userData = userDoc.data();
-      let favorites = userData.favorites || [];
-      let recentWatches = userData.recentWatches || [];
-
-      const movieData = {
-        id: (movie.id ?? movie.tmdb_id).toString(),
-        title: movie.title,
-        year: movie.year || (movie.release_date ? new Date(movie.release_date).getFullYear() : 0),
-      };
-
-      // Handle favorites (movies with rating 4-5 stars)
-      const existingFavIndex = favorites.findIndex((f: any) => f.id === movieData.id);
-      if (tempRating >= 4) {
-        // Add to favorites if not already there
-        if (existingFavIndex === -1) {
-          favorites = [...favorites, movieData];
-        }
-      } else {
-        // Remove from favorites if rating is below 4
-        if (existingFavIndex !== -1) {
-          favorites = favorites.filter((f: any) => f.id !== movieData.id);
-        }
-      }
-
-      // Handle recent watches (any movie with rating > 0 or marked as watched)
-      const existingWatchIndex = recentWatches.findIndex((w: any) => w.id === movieData.id);
-      if (finalStatus === 'watched' || tempRating > 0) {
-        const watchData = {
-          ...movieData,
-          rating: tempRating || 0,
-        };
-        
-        if (existingWatchIndex !== -1) {
-          // Update existing entry
-          recentWatches[existingWatchIndex] = watchData;
-        } else {
-          // Add new entry
-          recentWatches = [...recentWatches, watchData];
-        }
-        
-        // Keep only last 20 watches
-        recentWatches = recentWatches.slice(-20);
-      } else {
-        // Remove from recent watches if no longer watched
-        if (existingWatchIndex !== -1) {
-          recentWatches = recentWatches.filter((w: any) => w.id !== movieData.id);
-        }
-      }
-
-      // Update counters
-      let watchedCount = userData.watchedMovies || 0;
-      let watchlistCount = userData.watchlistMovies || 0;
-
-      if (finalStatus === 'watched' && movie.userStatus !== 'watched') {
-        watchedCount += 1;
-        if (movie.userStatus === 'watchlist') watchlistCount -= 1;
-      } else if (finalStatus === 'watchlist' && movie.userStatus !== 'watchlist') {
-        watchlistCount += 1;
-        if (movie.userStatus === 'watched') watchedCount -= 1;
-      } else if (finalStatus === null) {
-        if (movie.userStatus === 'watched') watchedCount -= 1;
-        if (movie.userStatus === 'watchlist') watchlistCount -= 1;
-      }
-
-      // Update the main user document with all changes
-      await updateDoc(userRef, {
-        favorites,
-        recentWatches,
-        watchedMovies: Math.max(0, watchedCount),
-        watchlistMovies: Math.max(0, watchlistCount),
-        lastUpdated: new Date(),
-      });
+  const handleSave = async () => {
+    if (!currentUser) {
+      Alert.alert('error', 'log in first');
+      return;
     }
+    setIsLoading(true);
+    try {
+      const finalStatus = tempRating > 0 ? 'watched' : null;
+      const movieId = (movie.id ?? movie.tmdb_id).toString();
 
-    setMovie((p) => ({ ...p, userRating: tempRating || undefined, userStatus: finalStatus || undefined }));
-    setHasChanges(false);
-    Alert.alert('saved', 'your changes are saved', [{ text: 'ok', onPress: () => navigation.goBack() }]);
-  } catch (e) {
-    console.error('Error saving movie data:', e);
-    Alert.alert('error', 'failed to save');
-  } finally {
-    setIsLoading(false);
-  }
-};
+      // 1. Save to individual movie document
+      const userMovieRef = doc(db, 'users', currentUser.uid, 'movies', movieId);
+      await setDoc(
+        userMovieRef,
+        {
+          movieId: movie.id ?? movie.tmdb_id,
+          tmdbId: movie.tmdb_id || movie.id,
+          title: movie.title,
+          year: movie.year,
+          rating: tempRating || null,
+          status: finalStatus,
+          posterPath: movie.poster_path,
+          genres: movie.genres ?? [],
+          updatedAt: new Date(),
+        },
+        { merge: true }
+      );
+
+      // 2. Update main user document arrays
+      const userRef = doc(db, 'users', currentUser.uid);
+      const userDoc = await getDoc(userRef);
+      
+      if (userDoc.exists()) {
+        const userData = userDoc.data();
+        let favorites = userData.favorites || [];
+        let recentWatches = userData.recentWatches || [];
+
+        const movieData = {
+          id: movieId,
+          title: movie.title,
+          year: movie.year || (movie.release_date ? new Date(movie.release_date).getFullYear() : 0),
+          poster: movie.poster_path ? `https://image.tmdb.org/t/p/w500${movie.poster_path}` : undefined,
+        };
+
+        // Handle favorites (movies with rating 4-5 stars)
+        const existingFavIndex = favorites.findIndex((f: any) => f.id === movieId);
+        if (tempRating >= 4) {
+          if (existingFavIndex === -1) {
+            favorites = [...favorites, movieData];
+          } else {
+            // Update existing favorite
+            favorites[existingFavIndex] = movieData;
+          }
+        } else {
+          if (existingFavIndex !== -1) {
+            favorites = favorites.filter((f: any) => f.id !== movieId);
+          }
+        }
+
+        // Handle recent watches (any movie with rating > 0 or marked as watched)
+        const existingWatchIndex = recentWatches.findIndex((w: any) => w.id === movieId);
+        if (finalStatus === 'watched' || tempRating > 0) {
+          const watchData = {
+            ...movieData,
+            rating: tempRating || 0,
+          };
+          
+          if (existingWatchIndex !== -1) {
+            recentWatches[existingWatchIndex] = watchData;
+          } else {
+            recentWatches = [...recentWatches, watchData];
+          }
+          
+          recentWatches = recentWatches.slice(-20);
+        } else {
+          if (existingWatchIndex !== -1) {
+            recentWatches = recentWatches.filter((w: any) => w.id !== movieId);
+          }
+        }
+
+        // Update counters - FIXED LOGIC
+        let watchedCount = userData.watchedMovies || 0;
+        
+        // Determine if we're transitioning to/from watched status
+        const wasWatched = originalStatus === 'watched' || originalRating > 0;
+        const isNowWatched = finalStatus === 'watched' || tempRating > 0;
+        
+        if (isNowWatched && !wasWatched) {
+          // NEW watch: wasn't watched before, is watched now
+          watchedCount += 1;
+          console.log('Incrementing watch count: new movie watched');
+        } else if (!isNowWatched && wasWatched) {
+          // REMOVED watch: was watched before, not watched now
+          watchedCount -= 1;
+          console.log('Decrementing watch count: movie unwatched');
+        } else {
+          // No change in watched status (either updating rating or re-rating)
+          console.log('No change to watch count: updating existing watched movie');
+        }
+
+        await updateDoc(userRef, {
+          favorites,
+          recentWatches,
+          watchedMovies: Math.max(0, watchedCount),
+          lastUpdated: new Date(),
+        });
+      }
+
+      // Update local state to reflect saved values
+      setMovie((p) => ({ 
+        ...p, 
+        userRating: tempRating || undefined, 
+        userStatus: finalStatus || undefined 
+      }));
+      setOriginalRating(tempRating);
+      setOriginalStatus(finalStatus);
+      setExistsInDatabase(true);
+      setHasChanges(false);
+      
+      Alert.alert('saved', 'your changes are saved', [{ text: 'ok', onPress: () => navigation.goBack() }]);
+    } catch (e: any) {
+      console.error('Error saving movie data:', e);
+      console.error('Error code:', e?.code);
+      console.error('Error message:', e?.message);
+      Alert.alert('error', `failed to save: ${e?.message || 'unknown error'}`);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const handleClose = () => {
     if (hasChanges) {
@@ -247,7 +279,7 @@ const handleSave = async () => {
 
   // ---- render ----
   const displayMovie = detailedMovie || movie;
-  const voteAvg = safeVoteAverage(displayMovie); // NO snake_case types needed
+  const voteAvg = safeVoteAverage(displayMovie);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -301,6 +333,12 @@ const handleSave = async () => {
           </View>
         </View>
 
+        {existsInDatabase && (
+          <View style={styles.alreadyAddedBanner}>
+            <Text style={styles.alreadyAddedText}>✓ already in your profile</Text>
+          </View>
+        )}
+
         <View style={styles.ratingSection}>
           <Text style={styles.sectionTitle}>rate this movie</Text>
           <View style={styles.starsContainer}>
@@ -315,24 +353,6 @@ const handleSave = async () => {
               {tempRating} star{tempRating !== 1 ? 's' : ''}
             </Text>
           )}
-        </View>
-
-        <View style={styles.statusSection}>
-          <Text style={styles.sectionTitle}>movie status</Text>
-          <View style={styles.statusButtons}>
-            <TouchableOpacity
-              style={[styles.statusButton, movie.userStatus === 'watched' && styles.statusButtonActive]}
-              onPress={() => handleStatusChange('watched')}
-            >
-              <Text style={[styles.statusButtonText, movie.userStatus === 'watched' && styles.statusButtonTextActive]}>watched</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.statusButton, movie.userStatus === 'watchlist' && styles.statusButtonActive]}
-              onPress={() => handleStatusChange('watchlist')}
-            >
-              <Text style={[styles.statusButtonText, movie.userStatus === 'watchlist' && styles.statusButtonTextActive]}>watchlist</Text>
-            </TouchableOpacity>
-          </View>
         </View>
 
         {!!displayMovie?.overview && (
@@ -383,6 +403,23 @@ const styles = StyleSheet.create({
   genreContainer: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 8 },
   genreChip: { backgroundColor: 'rgba(81, 22, 25, 0.2)', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16, borderWidth: 1, borderColor: 'rgba(81, 22, 25, 0.3)' },
   genreText: { color: '#511619', fontSize: 12, fontWeight: '600' },
+  alreadyAddedBanner: {
+    marginHorizontal: 20,
+    marginBottom: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    backgroundColor: 'rgba(81, 22, 25, 0.2)',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(81, 22, 25, 0.3)',
+    alignItems: 'center',
+  },
+  alreadyAddedText: {
+    color: '#F0E4C1',
+    fontSize: 14,
+    fontWeight: '600',
+    textTransform: 'lowercase',
+  },
   ratingSection: { paddingHorizontal: 20, paddingBottom: 30, alignItems: 'center', borderTopWidth: 1, borderTopColor: 'rgba(240, 228, 193, 0.1)', paddingTop: 30 },
   sectionTitle: { fontSize: 18, fontWeight: 'bold', color: '#F0E4C1', marginBottom: 20, textTransform: 'lowercase' },
   starsContainer: { flexDirection: 'row', marginBottom: 12 },
@@ -390,12 +427,6 @@ const styles = StyleSheet.create({
   star: { fontSize: 32, color: 'rgba(240, 228, 193, 0.3)' },
   starFilled: { color: '#511619' },
   ratingLabel: { color: '#F0E4C1', fontSize: 14, opacity: 0.8 },
-  statusSection: { paddingHorizontal: 20, paddingBottom: 30, alignItems: 'center' },
-  statusButtons: { flexDirection: 'row', gap: 16 },
-  statusButton: { paddingHorizontal: 24, paddingVertical: 12, borderRadius: 20, backgroundColor: 'rgba(240, 228, 193, 0.1)', borderWidth: 1, borderColor: 'rgba(240, 228, 193, 0.2)' },
-  statusButtonActive: { backgroundColor: '#511619', borderColor: '#511619' },
-  statusButtonText: { color: '#F0E4C1', fontSize: 14, fontWeight: '600', opacity: 0.7, textTransform: 'lowercase' },
-  statusButtonTextActive: { opacity: 1 },
   overviewSection: { paddingHorizontal: 20, paddingBottom: 30, borderTopWidth: 1, borderTopColor: 'rgba(240, 228, 193, 0.1)', paddingTop: 30 },
   overviewText: { color: '#F0E4C1', fontSize: 16, lineHeight: 24, opacity: 0.8 },
   castSection: { paddingHorizontal: 20, paddingBottom: 30 },
