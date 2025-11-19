@@ -20,13 +20,16 @@ import { FirestoreService } from "../services/FirestoreService";
 import * as ImagePicker from 'expo-image-picker';
 import { FirebaseStorageService } from '../services/FirebaseStorageService';
 import DraggableFlatList, {
-  OpacityDecorator,
   RenderItemParams,
 } from 'react-native-draggable-flatlist';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
+// --- GRID DIMENSIONS ---
 const { width } = Dimensions.get('window');
-const PHOTO_SIZE = (width - 60) / 3;
+const SCREEN_PADDING = 20;
+const COLUMN_COUNT = 3;
+const GAP = 12; 
+const PHOTO_SIZE = (width - (SCREEN_PADDING * 2) - (GAP * (COLUMN_COUNT - 1))) / COLUMN_COUNT;
 
 type Draft = {
   displayName: string;
@@ -39,9 +42,10 @@ type Draft = {
   email: string;
 };
 
-type PhotoItem = {
+type GridItem = {
   id: string;
-  uri: string;
+  type: 'photo' | 'add';
+  uri?: string;
 };
 
 const GENDER_OPTIONS = ["female", "male", "nonbinary", "other"];
@@ -64,23 +68,26 @@ export default function EditProfileScreen() {
     email: "",
   });
   const [selectedPhotoIndex, setSelectedPhotoIndex] = useState<number | null>(null);
-
   const bioCount = useMemo(() => draft.bio.length, [draft.bio]);
 
-  const photoItems: PhotoItem[] = useMemo(() => 
-    draft.photos.map((uri, index) => ({
-      id: `photo-${index}-${uri.slice(-10)}`,
+  const gridData: GridItem[] = useMemo(() => {
+    const items: GridItem[] = draft.photos.map((uri, index) => ({
+      id: `photo-${uri}-${index}`,
+      type: 'photo',
       uri,
-    })),
-    [draft.photos]
-  );
+    }));
+    if (draft.photos.length < MAX_PHOTOS) {
+      items.push({ id: 'add-btn', type: 'add' });
+    }
+    return items;
+  }, [draft.photos]);
 
   useEffect(() => {
     (async () => {
       try {
         const user = FirebaseAuthService.getCurrentUser();
         if (!user) {
-          Alert.alert("error", "no user. please sign in again.");
+          Alert.alert("error", "no user.");
           return;
         }
         const profile = await FirestoreService.getUserProfile(user.uid);
@@ -95,7 +102,7 @@ export default function EditProfileScreen() {
           ? profile.photos.filter(p => p && p.trim())
           : [];
 
-        const d: Draft = {
+        setDraft({
           displayName: profile?.displayName || "",
           age: profile?.age ? String(profile.age) : "",
           city: (profile as any)?.city || "",
@@ -104,140 +111,70 @@ export default function EditProfileScreen() {
           bio: profile?.bio || "",
           photos: existingPhotos,
           email: user.email || "",
-        };
-        setDraft(d);
+        });
       } catch (e) {
-        console.error("Error loading profile:", e);
-        Alert.alert("error", "failed to load profile.");
+        console.error(e);
       }
     })();
   }, []);
 
   const handlePhotoUpload = async (index?: number) => {
-    try {
+     try {
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      
-      if (status !== 'granted') {
-        Alert.alert('Permission needed', 'We need camera roll permissions to upload photos.');
-        return;
-      }
-
+      if (status !== 'granted') return;
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: true,
         aspect: [3, 4],
         quality: 0.8,
       });
-
-      if (result.canceled) {
-        return;
-      }
-
-      const user = FirebaseAuthService.getCurrentUser();
-      if (!user) {
-        Alert.alert("Error", "No user found. Please sign in again.");
-        return;
-      }
-
-      setUploading(true);
-
-      const photoIndex = index !== undefined ? index : draft.photos.length;
-      const downloadURL = await FirebaseStorageService.uploadProfilePhoto(
-        result.assets[0].uri,
-        user.uid,
-        photoIndex
-      );
-
-      setDraft((prev) => {
-        const newPhotos = [...prev.photos];
-        if (index !== undefined && index < newPhotos.length) {
-          newPhotos[index] = downloadURL;
-        } else {
-          newPhotos.push(downloadURL);
-        }
-        return { ...prev, photos: newPhotos };
-      });
-
-      Alert.alert("Success", "Photo uploaded successfully!");
-    } catch (error) {
-      console.error('Error uploading photo:', error);
-      Alert.alert("Error", "Failed to upload photo. Please try again.");
-    } finally {
-      setUploading(false);
-    }
+      if (!result.canceled) processUpload(result.assets[0].uri, index);
+    } catch (error) { Alert.alert("Error", "Failed"); }
   };
 
   const handleTakePhoto = async (index?: number) => {
-    try {
+     try {
       const { status } = await ImagePicker.requestCameraPermissionsAsync();
-      
-      if (status !== 'granted') {
-        Alert.alert('Permission needed', 'We need camera permissions to take photos.');
-        return;
-      }
-
+      if (status !== 'granted') return;
       const result = await ImagePicker.launchCameraAsync({
         allowsEditing: true,
         aspect: [3, 4],
         quality: 0.8,
       });
+      if (!result.canceled) processUpload(result.assets[0].uri, index);
+    } catch (error) { Alert.alert("Error", "Failed"); }
+  };
 
-      if (result.canceled) {
-        return;
-      }
-
-      const user = FirebaseAuthService.getCurrentUser();
-      if (!user) {
-        Alert.alert("Error", "No user found. Please sign in again.");
-        return;
-      }
-
-      setUploading(true);
-
-      const photoIndex = index !== undefined ? index : draft.photos.length;
-      const downloadURL = await FirebaseStorageService.uploadProfilePhoto(
-        result.assets[0].uri,
-        user.uid,
-        photoIndex
-      );
-
+  const processUpload = async (localUri: string, index?: number) => {
+    const user = FirebaseAuthService.getCurrentUser();
+    if (!user) return;
+    setUploading(true);
+    try {
+      const targetIndex = index !== undefined ? index : draft.photos.length;
+      const downloadURL = await FirebaseStorageService.uploadProfilePhoto(localUri, user.uid, targetIndex);
       setDraft((prev) => {
         const newPhotos = [...prev.photos];
-        if (index !== undefined && index < newPhotos.length) {
-          newPhotos[index] = downloadURL;
-        } else {
-          newPhotos.push(downloadURL);
-        }
+        if (index !== undefined && index < newPhotos.length) newPhotos[index] = downloadURL;
+        else newPhotos.push(downloadURL);
         return { ...prev, photos: newPhotos };
       });
-
-      Alert.alert("Success", "Photo uploaded successfully!");
-    } catch (error) {
-      console.error('Error taking photo:', error);
-      Alert.alert("Error", "Failed to take photo. Please try again.");
-    } finally {
-      setUploading(false);
-    }
+    } catch (e) { Alert.alert("Error", "Upload failed."); } 
+    finally { setUploading(false); }
   };
 
   const showPhotoOptions = () => {
-    Alert.alert(
-      "Add Photo",
-      "Choose an option",
-      [
-        { text: "Take Photo", onPress: () => handleTakePhoto() },
-        { text: "Choose from Library", onPress: () => handlePhotoUpload() },
-        { text: "Cancel", style: "cancel" }
-      ]
-    );
+    Alert.alert("Add Photo", "Choose an option", [
+      { text: "Take Photo", onPress: () => handleTakePhoto() },
+      { text: "Choose from Library", onPress: () => handlePhotoUpload() },
+      { text: "Cancel", style: "cancel" }
+    ]);
   };
 
   const removePhoto = (index: number) => {
     if (draft.photos.length <= 1) {
-      Alert.alert("cannot remove", "you must have at least one photo");
+      Alert.alert("Cannot remove", "Keep at least one photo.");
       return;
     }
-
     setDraft((prev) => {
       const newPhotos = [...prev.photos];
       newPhotos.splice(index, 1);
@@ -246,154 +183,91 @@ export default function EditProfileScreen() {
     setSelectedPhotoIndex(null);
   };
 
-  const navigatePhoto = (direction: 'prev' | 'next') => {
-    if (selectedPhotoIndex === null) return;
-    
-    if (direction === 'prev' && selectedPhotoIndex > 0) {
-      setSelectedPhotoIndex(selectedPhotoIndex - 1);
-    } else if (direction === 'next' && selectedPhotoIndex < draft.photos.length - 1) {
-      setSelectedPhotoIndex(selectedPhotoIndex + 1);
-    }
-  };
-
-  const toggleInterested = (option: string) => {
-    setDraft((prev) => {
-      const isSelected = prev.interestedIn.includes(option);
-      const newInterested = isSelected
-        ? prev.interestedIn.filter((p) => p !== option)
-        : [...prev.interestedIn, option];
-      return { ...prev, interestedIn: newInterested };
-    });
-  };
-
-  const isProfileValid = () => {
-    const ageNum = draft.age.trim() ? Number(draft.age.trim()) : NaN;
-    return (
-      draft.displayName.trim().length > 0 &&
-      draft.city.trim().length > 0 &&
-      draft.gender.length > 0 &&
-      draft.interestedIn.length > 0 &&
-      Number.isFinite(ageNum) &&
-      ageNum >= 18 &&
-      ageNum <= 100 &&
-      bioCount <= MAX_BIO &&
-      draft.photos.length > 0
-    );
-  };
-
   const save = async () => {
     const user = FirebaseAuthService.getCurrentUser();
-    if (!user) {
-      Alert.alert("error", "no user. please sign in again.");
-      return;
-    }
-
-    const ageNum = draft.age.trim() ? Number(draft.age.trim()) : NaN;
-    if (!Number.isFinite(ageNum) || ageNum < 18 || ageNum > 100) {
-      Alert.alert("invalid age", "age must be between 18 and 100.");
-      return;
-    }
-    if (!draft.city.trim()) {
-      Alert.alert("required", "city is required.");
-      return;
-    }
-    if (!draft.gender) {
-      Alert.alert("required", "please select your gender.");
-      return;
-    }
-    if (draft.interestedIn.length === 0) {
-      Alert.alert("required", "please select at least one gender you'd like to match with.");
-      return;
-    }
-    if (draft.photos.length === 0) {
-      Alert.alert("required", "you must have at least one photo.");
-      return;
-    }
-    if (bioCount > MAX_BIO) {
-      Alert.alert("bio too long", `bio must be ≤ ${MAX_BIO} characters.`);
-      return;
-    }
-
-    const patch = {
-      displayName: draft.displayName.trim(),
-      age: ageNum,
-      city: draft.city.trim(),
-      gender: draft.gender,
-      genderPreferences: draft.interestedIn,
-      interestedIn: draft.interestedIn,
-      bio: draft.bio.trim() || undefined,
-      photos: draft.photos,
-    };
-
+    if (!user) return;
     setSaving(true);
     try {
-      await FirestoreService.saveUserProfile(user.uid, patch);
-      Alert.alert("saved", "profile updated successfully.", [
-        { text: "ok", onPress: () => navigation.goBack() }
-      ]);
-    } catch (e) {
-      console.error("Save error:", e);
-      Alert.alert("error", "could not save profile.");
-    } finally {
-      setSaving(false);
+      await FirestoreService.saveUserProfile(user.uid, {
+        displayName: draft.displayName.trim(),
+        age: Number(draft.age.trim()),
+        city: draft.city.trim(),
+        gender: draft.gender,
+        genderPreferences: draft.interestedIn,
+        bio: draft.bio.trim(),
+        photos: draft.photos,
+      });
+      Alert.alert("Saved", "Profile updated.", [{ text: "OK", onPress: () => navigation.goBack() }]);
+    } catch (e) { Alert.alert("Error", "Could not save."); } 
+    finally { setSaving(false); }
+  };
+
+  const onDragEnd = ({ data }: { data: GridItem[] }) => {
+    const newPhotos = data.filter((item) => item.type === 'photo').map((item) => item.uri!);
+    setDraft((prev) => ({ ...prev, photos: newPhotos }));
+  };
+
+  // --- MANUAL OVERRIDE RENDER FUNCTION ---
+  const renderGridItem = ({ item, drag, isActive, getIndex }: RenderItemParams<GridItem>) => {
+    if (item.type === 'add') {
+      return (
+        <View style={[styles.photoSlotWrapper, { marginBottom: GAP, marginRight: GAP }]}>
+          <TouchableOpacity
+            style={[styles.photoSlot, styles.emptyPhotoSlot]}
+            onPress={showPhotoOptions}
+            disabled={uploading}
+          >
+            <Text style={styles.plusIcon}>{uploading ? '...' : '+'}</Text>
+          </TouchableOpacity>
+        </View>
+      );
     }
-  };
 
-  const handleNameChange = (text: string) =>
-    setDraft((p) => ({ ...p, displayName: text }));
-
-  const handleAgeChange = (text: string) => {
-    const numbersOnly = text.replace(/[^0-9]/g, "");
-    setDraft((p) => ({ ...p, age: numbersOnly }));
-  };
-
-  const handleCityChange = (text: string) =>
-    setDraft((p) => ({ ...p, city: text }));
-
-  const handleBioChange = (text: string) => {
-    const truncated = text.slice(0, MAX_BIO);
-    setDraft((p) => ({ ...p, bio: truncated }));
-  };
-
-  const onDragEnd = ({ data }: { data: PhotoItem[] }) => {
-    setDraft((prev) => ({
-      ...prev,
-      photos: data.map(item => item.uri),
-    }));
-  };
-
-  const renderPhotoItem = ({ item, drag, isActive, getIndex }: RenderItemParams<PhotoItem>) => {
-    const index = getIndex();
-    const isFirst = index === 0;
+    const isFirst = getIndex() === 0;
     
     return (
-      <OpacityDecorator activeOpacity={0.9}>
-        <TouchableOpacity
-          onPress={() => !isActive && setSelectedPhotoIndex(index || 0)}
-          onLongPress={drag}
-          disabled={uploading}
-          delayLongPress={100}
-          style={[
-            styles.photoSlot,
-            isActive && styles.photoSlotActive,
-            { marginRight: 10, marginBottom: 10 }
-          ]}
-        >
-          <View style={[styles.photoContent, isActive && styles.photoContentActive]}>
-            <Image source={{ uri: item.uri }} style={styles.photoImage} />
-            {isFirst && !isActive && (
-              <View style={styles.profileBadge}>
-                <Text style={styles.profileBadgeText}>profile</Text>
-              </View>
-            )}
-            {!isActive && (
-              <View style={styles.dragHandle}>
-                <Text style={styles.dragHandleText}>⋮⋮</Text>
-              </View>
-            )}
-          </View>
-        </TouchableOpacity>
-      </OpacityDecorator>
+      <TouchableOpacity
+        onLongPress={drag}
+        onPress={() => !isActive && setSelectedPhotoIndex(getIndex() || 0)}
+        disabled={isActive || uploading}
+        delayLongPress={100}
+        activeOpacity={1} // Disable default press opacity
+        style={[
+          styles.photoSlotWrapper,
+          { 
+            marginBottom: GAP, 
+            marginRight: GAP,
+            // MANUAL GHOST LOGIC:
+            transform: [{ scale: isActive ? 1.1 : 1 }],
+            opacity: isActive ? 0.7 : 1,
+            zIndex: isActive ? 9999 : 1,
+            elevation: isActive ? 10 : 0,
+          }
+        ]}
+      >
+        <View style={[
+          styles.photoContent,
+          // MANUAL BORDER LOGIC:
+          isActive && { 
+            borderColor: '#F0E4C1', 
+            borderWidth: 2,
+            backgroundColor: '#111C2A', // Needed for shadow on Android
+          }
+        ]}>
+          <Image source={{ uri: item.uri }} style={styles.photoImage} />
+          
+          {!isActive && isFirst && (
+            <View style={styles.profileBadge}>
+              <Text style={styles.profileBadgeText}>profile</Text>
+            </View>
+          )}
+          {!isActive && (
+            <View style={styles.dragHandle}>
+              <Text style={styles.dragHandleText}>⋮⋮</Text>
+            </View>
+          )}
+        </View>
+      </TouchableOpacity>
     );
   };
 
@@ -410,158 +284,103 @@ export default function EditProfileScreen() {
           <View style={{ width: 60 }} />
         </View>
 
-        <ScrollView
-          contentContainerStyle={styles.content}
-          keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="on-drag"
-        >
-          <Text style={styles.label}>photos (up to {MAX_PHOTOS})</Text>
-          <Text style={styles.photoHint}>
-            long press & drag to reorder • first photo is your profile photo
-          </Text>
+        <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+          <Text style={styles.label}>photos</Text>
+          <Text style={styles.photoHint}>long press & drag to reorder</Text>
           
-          <View style={styles.photosContainer}>
+          <View style={styles.gridContainer}>
             <DraggableFlatList
-              data={photoItems}
+              data={gridData}
               onDragEnd={onDragEnd}
               keyExtractor={(item) => item.id}
-              renderItem={renderPhotoItem}
-              numColumns={3}
+              renderItem={renderGridItem}
+              numColumns={COLUMN_COUNT}
               scrollEnabled={false}
-              containerStyle={styles.photosGrid}
-              activationDistance={10}
-              renderPlaceholder={() => (
-                <View style={[styles.photoSlot, styles.placeholderSlot, { marginRight: 10, marginBottom: 10 }]} />
-              )}
             />
-            
-            {draft.photos.length < MAX_PHOTOS && (
-              <TouchableOpacity
-                style={[styles.photoSlot, styles.emptyPhotoSlot]}
-                onPress={showPhotoOptions}
-                disabled={uploading}
-              >
-                <Text style={styles.plusIcon}>{uploading ? '...' : '+'}</Text>
-              </TouchableOpacity>
-            )}
           </View>
 
+          {/* Form Inputs */}
           <Text style={styles.label}>email</Text>
-          <View style={styles.emailBox}>
-            <Text style={styles.emailText}>{draft.email || "no email"}</Text>
-          </View>
+          <View style={styles.emailBox}><Text style={styles.emailText}>{draft.email}</Text></View>
 
           <Text style={styles.label}>display name</Text>
           <TextInput
             value={draft.displayName}
-            onChangeText={handleNameChange}
+            onChangeText={(t) => setDraft(p => ({ ...p, displayName: t }))}
             style={styles.input}
             placeholder="your name"
             placeholderTextColor="rgba(240,228,193,0.5)"
-            autoCapitalize="words"
-            autoCorrect={false}
-            maxLength={50}
           />
 
           <Text style={styles.dualLabel}>age • city</Text>
           <View style={styles.row}>
             <TextInput
               value={draft.age}
-              onChangeText={handleAgeChange}
+              onChangeText={(t) => setDraft(p => ({ ...p, age: t.replace(/[^0-9]/g, "") }))}
               style={[styles.input, styles.inputHalf]}
               keyboardType="number-pad"
-              placeholder="age (18+)"
+              placeholder="18+"
               placeholderTextColor="rgba(240,228,193,0.5)"
               maxLength={3}
             />
             <TextInput
               value={draft.city}
-              onChangeText={handleCityChange}
+              onChangeText={(t) => setDraft(p => ({ ...p, city: t }))}
               style={[styles.input, styles.inputHalf]}
-              placeholder="istanbul"
+              placeholder="city"
               placeholderTextColor="rgba(240,228,193,0.5)"
-              autoCapitalize="words"
-              autoCorrect={false}
-              maxLength={50}
             />
           </View>
 
           <Text style={styles.label}>gender</Text>
           <View style={styles.genderRow}>
-            {GENDER_OPTIONS.map((option) => {
-              const isSelected = draft.gender === option;
-              return (
-                <TouchableOpacity
-                  key={option}
-                  onPress={() => setDraft((p) => ({ ...p, gender: option }))}
-                  style={[
-                    styles.genderPill,
-                    isSelected && styles.genderPillActive,
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.genderText,
-                      isSelected && styles.genderTextActive,
-                    ]}
-                  >
-                    {option}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
+            {GENDER_OPTIONS.map((option) => (
+              <TouchableOpacity
+                key={option}
+                onPress={() => setDraft((p) => ({ ...p, gender: option }))}
+                style={[styles.pill, draft.gender === option && styles.pillActive]}
+              >
+                <Text style={[styles.pillText, draft.gender === option && styles.pillTextActive]}>{option}</Text>
+              </TouchableOpacity>
+            ))}
           </View>
 
-          <Text style={styles.label}>genders i'd like to match (pick at least one)</Text>
-          <View style={styles.interestedRow}>
-            {INTERESTED_OPTIONS.map((option) => {
-              const isSelected = draft.interestedIn.includes(option);
-              return (
-                <TouchableOpacity
-                  key={option}
-                  onPress={() => toggleInterested(option)}
-                  style={[
-                    styles.interestedPill,
-                    isSelected && styles.interestedPillActive,
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.interestedText,
-                      isSelected && styles.interestedTextActive,
-                    ]}
-                  >
-                    {option}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
+          <Text style={styles.label}>interested in</Text>
+          <View style={styles.genderRow}>
+            {INTERESTED_OPTIONS.map((option) => (
+              <TouchableOpacity
+                key={option}
+                onPress={() => setDraft(p => {
+                  const has = p.interestedIn.includes(option);
+                  return { ...p, interestedIn: has ? p.interestedIn.filter(x => x !== option) : [...p.interestedIn, option] };
+                })}
+                style={[styles.pill, draft.interestedIn.includes(option) && styles.pillActive]}
+              >
+                <Text style={[styles.pillText, draft.interestedIn.includes(option) && styles.pillTextActive]}>{option}</Text>
+              </TouchableOpacity>
+            ))}
           </View>
 
-          <Text style={styles.label}>
-            bio <Text style={styles.counter}>{bioCount}/{MAX_BIO}</Text>
-          </Text>
+          <Text style={styles.label}>bio <Text style={styles.counter}>{bioCount}/{MAX_BIO}</Text></Text>
           <TextInput
             value={draft.bio}
-            onChangeText={handleBioChange}
+            onChangeText={(t) => setDraft(p => ({ ...p, bio: t.slice(0, MAX_BIO) }))}
             style={[styles.input, styles.textarea]}
             multiline
-            numberOfLines={4}
-            placeholder="say something about your movie taste"
+            placeholder="write something..."
             placeholderTextColor="rgba(240,228,193,0.5)"
-            maxLength={MAX_BIO}
-            textAlignVertical="top"
           />
 
           <TouchableOpacity
-            style={[styles.saveBtn, (!isProfileValid() || saving) && { opacity: 0.6 }]}
+            style={[styles.saveBtn, saving && { opacity: 0.6 }]}
             onPress={save}
-            disabled={!isProfileValid() || saving}
+            disabled={saving}
           >
             <Text style={styles.saveText}>{saving ? "saving…" : "save changes"}</Text>
           </TouchableOpacity>
         </ScrollView>
 
+        {/* Photo Preview Modal */}
         <Modal
           visible={selectedPhotoIndex !== null}
           transparent={true}
@@ -569,69 +388,17 @@ export default function EditProfileScreen() {
           onRequestClose={() => setSelectedPhotoIndex(null)}
         >
           <View style={styles.modalOverlay}>
-            <TouchableOpacity 
-              style={styles.modalBackground}
-              activeOpacity={1}
-              onPress={() => setSelectedPhotoIndex(null)}
-            />
-            
+            <TouchableOpacity style={styles.modalBackground} onPress={() => setSelectedPhotoIndex(null)} />
             <View style={styles.modalContent}>
               {selectedPhotoIndex !== null && (
                 <>
-                  <Image 
-                    source={{ uri: draft.photos[selectedPhotoIndex] }} 
-                    style={styles.modalImage}
-                    resizeMode="contain"
-                  />
-                  
-                  <View style={styles.modalControls}>
-                    {selectedPhotoIndex > 0 && (
-                      <TouchableOpacity 
-                        style={styles.navButton}
-                        onPress={() => navigatePhoto('prev')}
-                      >
-                        <Text style={styles.navButtonText}>←</Text>
-                      </TouchableOpacity>
-                    )}
-                    
-                    <View style={styles.modalActions}>
-                      <TouchableOpacity
-                        style={[
-                          styles.removeButton,
-                          draft.photos.length <= 1 && styles.removeButtonDisabled
-                        ]}
-                        onPress={() => removePhoto(selectedPhotoIndex)}
-                        disabled={draft.photos.length <= 1}
-                      >
-                        <Text style={[
-                          styles.removeButtonText,
-                          draft.photos.length <= 1 && styles.removeButtonTextDisabled
-                        ]}>
-                          remove
-                        </Text>
-                      </TouchableOpacity>
-                      
-                      <TouchableOpacity
-                        style={styles.closeButton}
-                        onPress={() => setSelectedPhotoIndex(null)}
-                      >
-                        <Text style={styles.closeButtonText}>close</Text>
-                      </TouchableOpacity>
-                    </View>
-                    
-                    {selectedPhotoIndex < draft.photos.length - 1 && (
-                      <TouchableOpacity 
-                        style={styles.navButton}
-                        onPress={() => navigatePhoto('next')}
-                      >
-                        <Text style={styles.navButtonText}>→</Text>
-                      </TouchableOpacity>
-                    )}
-                  </View>
-                  
-                  <Text style={styles.photoCounter}>
-                    {selectedPhotoIndex + 1} / {draft.photos.length}
-                  </Text>
+                  <Image source={{ uri: draft.photos[selectedPhotoIndex] }} style={styles.modalImage} resizeMode="contain" />
+                  <TouchableOpacity
+                    style={styles.removeButton}
+                    onPress={() => removePhoto(selectedPhotoIndex)}
+                  >
+                    <Text style={styles.removeButtonText}>Remove Photo</Text>
+                  </TouchableOpacity>
                 </>
               )}
             </View>
@@ -644,307 +411,50 @@ export default function EditProfileScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#111C2A" },
-  
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(240, 228, 193, 0.2)',
-  },
+  header: { flexDirection: 'row', justifyContent: 'space-between', padding: 20, paddingTop: 16, alignItems: 'center' },
   backButton: { padding: 4 },
   backText: { color: '#F0E4C1', fontSize: 16 },
-  headerTitle: { color: '#F0E4C1', fontSize: 18, fontWeight: 'bold', textTransform: 'lowercase' },
+  headerTitle: { color: '#F0E4C1', fontSize: 18, fontWeight: 'bold' },
+  content: { padding: 20, paddingBottom: 60 },
 
-  content: { padding: 20, paddingBottom: 40 },
+  gridContainer: { marginBottom: 10 },
+  photoSlotWrapper: { width: PHOTO_SIZE, height: PHOTO_SIZE },
+  photoSlot: { flex: 1, borderRadius: 12, overflow: 'hidden' },
+  photoContent: { flex: 1, borderRadius: 12, overflow: 'hidden', backgroundColor: 'rgba(240,228,193,0.05)' },
+  photoImage: { width: '100%', height: '100%' },
   
-  label: {
-    color: "#F0E4C1",
-    fontSize: 15,
-    opacity: 0.9,
-    marginTop: 18,
-    marginBottom: 10,
-    textTransform: "lowercase",
-    fontWeight: "600",
-  },
-  dualLabel: {
-    color: "#F0E4C1",
-    fontSize: 15,
-    opacity: 0.9,
-    marginTop: 18,
-    marginBottom: 10,
-    textTransform: "lowercase",
-    fontWeight: "600",
-  },
+  emptyPhotoSlot: { borderWidth: 2, borderColor: 'rgba(240,228,193,0.2)', borderStyle: 'dashed', alignItems: 'center', justifyContent: 'center' },
+  plusIcon: { color: 'rgba(240,228,193,0.4)', fontSize: 40, fontWeight: '300' },
+  
+  profileBadge: { position: 'absolute', bottom: 4, left: 4, backgroundColor: 'rgba(81, 22, 25, 0.9)', paddingHorizontal: 6, borderRadius: 4 },
+  profileBadgeText: { color: '#F0E4C1', fontSize: 10, fontWeight: '700' },
+  dragHandle: { position: 'absolute', top: 4, right: 4, backgroundColor: 'rgba(0,0,0,0.4)', paddingHorizontal: 6, borderRadius: 4 },
+  dragHandleText: { color: '#F0E4C1', fontSize: 14, fontWeight: 'bold' },
 
-  photosContainer: {
-    marginBottom: 8,
-  },
-  photosGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-  },
-  photoSlot: {
-    width: PHOTO_SIZE,
-    height: PHOTO_SIZE,
-  },
-  photoSlotActive: {
-    zIndex: 1000,
-  },
-  photoContent: {
-    width: '100%',
-    height: '100%',
-    borderRadius: 12,
-    overflow: 'hidden',
-    position: 'relative',
-    backgroundColor: 'rgba(240,228,193,0.05)',
-  },
-  photoContentActive: {
-    transform: [{ scale: 1.05 }],
-    shadowColor: '#F0E4C1',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.8,
-    shadowRadius: 15,
-    elevation: 20,
-  },
-  photoImage: {
-    width: '100%',
-    height: '100%',
-    backgroundColor: 'rgba(240,228,193,0.05)',
-  },
-  placeholderSlot: {
-    backgroundColor: 'rgba(81, 22, 25, 0.5)',
-    borderWidth: 3,
-    borderColor: '#F0E4C1',
-    borderStyle: 'dashed',
-    borderRadius: 12,
-  },
-  emptyPhotoSlot: {
-    backgroundColor: 'rgba(240,228,193,0.05)',
-    borderWidth: 2,
-    borderColor: 'rgba(240,228,193,0.2)',
-    borderStyle: 'dashed',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 12,
-  },
-  plusIcon: {
-    color: 'rgba(240,228,193,0.4)',
-    fontSize: 48,
-    fontWeight: '300',
-  },
-  profileBadge: {
-    position: 'absolute',
-    bottom: 4,
-    left: 4,
-    right: 4,
-    backgroundColor: 'rgba(81, 22, 25, 0.9)',
-    paddingVertical: 2,
-    paddingHorizontal: 6,
-    borderRadius: 4,
-    alignItems: 'center',
-  },
-  profileBadgeText: {
-    color: '#F0E4C1',
-    fontSize: 10,
-    fontWeight: '700',
-    textTransform: 'lowercase',
-  },
-  dragHandle: {
-    position: 'absolute',
-    top: 4,
-    right: 4,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
-  },
-  dragHandleText: {
-    color: '#F0E4C1',
-    fontSize: 16,
-    fontWeight: 'bold',
-    letterSpacing: -2,
-  },
-  photoHint: {
-    color: 'rgba(240,228,193,0.5)',
-    fontSize: 12,
-    textAlign: 'center',
-    marginBottom: 12,
-    textTransform: 'lowercase',
-  },
-
-  emailBox: {
-    backgroundColor: "rgba(240,228,193,0.04)",
-    borderWidth: 1,
-    borderColor: "rgba(240,228,193,0.15)",
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 14,
-  },
-  emailText: {
-    color: "rgba(240,228,193,0.7)",
-    fontSize: 16,
-  },
-
-  input: {
-    backgroundColor: "rgba(240,228,193,0.06)",
-    borderWidth: 1,
-    borderColor: "rgba(240,228,193,0.2)",
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 14,
-    color: "#F0E4C1",
-    fontSize: 16,
-  },
+  label: { color: "#F0E4C1", fontSize: 15, marginTop: 20, marginBottom: 8, fontWeight: "600", textTransform: 'lowercase' },
+  dualLabel: { color: "#F0E4C1", fontSize: 15, marginTop: 20, marginBottom: 8, fontWeight: "600", textTransform: 'lowercase' },
+  photoHint: { color: 'rgba(240,228,193,0.5)', fontSize: 12, textAlign: 'center', marginBottom: 15 },
+  emailBox: { backgroundColor: "rgba(240,228,193,0.04)", borderRadius: 12, padding: 14, borderWidth: 1, borderColor: "rgba(240,228,193,0.1)" },
+  emailText: { color: "rgba(240,228,193,0.6)", fontSize: 16 },
+  input: { backgroundColor: "rgba(240,228,193,0.06)", borderRadius: 12, padding: 14, color: "#F0E4C1", fontSize: 16, borderWidth: 1, borderColor: "rgba(240,228,193,0.15)" },
   textarea: { minHeight: 100, textAlignVertical: "top" },
-  counter: { color: "rgba(240,228,193,0.6)", fontSize: 13 },
   row: { flexDirection: "row", justifyContent: "space-between" },
   inputHalf: { flex: 1, marginHorizontal: 5 },
+  counter: { fontSize: 12, color: 'rgba(240,228,193,0.4)' },
 
-  genderRow: { flexDirection: "row", flexWrap: "wrap", marginHorizontal: -5 },
-  genderPill: {
-    borderRadius: 999,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderWidth: 1,
-    borderColor: "rgba(240,228,193,0.3)",
-    backgroundColor: "rgba(240,228,193,0.05)",
-    margin: 5,
-  },
-  genderPillActive: { backgroundColor: "#511619", borderColor: "#511619" },
-  genderText: {
-    color: "rgba(240,228,193,0.8)",
-    textTransform: "lowercase",
-    fontWeight: "700",
-    fontSize: 15,
-  },
-  genderTextActive: { color: "#F0E4C1" },
+  genderRow: { flexDirection: "row", flexWrap: "wrap", marginHorizontal: -4 },
+  pill: { borderRadius: 20, paddingHorizontal: 16, paddingVertical: 10, borderWidth: 1, borderColor: "rgba(240,228,193,0.2)", backgroundColor: "rgba(240,228,193,0.05)", margin: 4 },
+  pillActive: { backgroundColor: "#511619", borderColor: "#511619" },
+  pillText: { color: "rgba(240,228,193,0.7)", fontWeight: "600" },
+  pillTextActive: { color: "#F0E4C1" },
 
-  interestedRow: { flexDirection: "row", flexWrap: "wrap", marginHorizontal: -5 },
-  interestedPill: {
-    borderRadius: 999,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderWidth: 1,
-    borderColor: "rgba(240,228,193,0.3)",
-    backgroundColor: "rgba(240,228,193,0.05)",
-    margin: 5,
-  },
-  interestedPillActive: { backgroundColor: "#511619", borderColor: "#511619" },
-  interestedText: {
-    color: "rgba(240,228,193,0.8)",
-    textTransform: "lowercase",
-    fontWeight: "700",
-    fontSize: 15,
-  },
-  interestedTextActive: { color: "#F0E4C1" },
+  saveBtn: { backgroundColor: "#511619", borderRadius: 12, padding: 16, alignItems: "center", marginTop: 30 },
+  saveText: { color: "#F0E4C1", fontWeight: "bold", fontSize: 16, textTransform: 'lowercase' },
 
-  saveBtn: {
-    backgroundColor: "#511619",
-    borderRadius: 12,
-    paddingVertical: 16,
-    alignItems: "center",
-    marginTop: 24,
-  },
-  saveText: { 
-    color: "#F0E4C1", 
-    fontWeight: "800", 
-    fontSize: 16, 
-    textTransform: "lowercase",
-    letterSpacing: 0.5,
-  },
-
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.95)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  modalBackground: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-  },
-  modalContent: {
-    width: '90%',
-    maxHeight: '80%',
-    alignItems: 'center',
-  },
-  modalImage: {
-    width: '100%',
-    height: 400,
-    borderRadius: 12,
-  },
-  modalControls: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    width: '100%',
-    marginTop: 20,
-  },
-  navButton: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    backgroundColor: 'rgba(240,228,193,0.1)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(240,228,193,0.3)',
-  },
-  navButtonText: {
-    color: '#F0E4C1',
-    fontSize: 24,
-    fontWeight: 'bold',
-  },
-  modalActions: {
-    flex: 1,
-    flexDirection: 'row',
-    justifyContent: 'center',
-    marginHorizontal: 10,
-  },
-  removeButton: {
-    backgroundColor: '#511619',
-    paddingVertical: 12,
-    paddingHorizontal: 24,
-    borderRadius: 8,
-    marginRight: 6,
-  },
-  removeButtonDisabled: {
-    backgroundColor: 'rgba(81,22,25,0.3)',
-  },
-  removeButtonText: {
-    color: '#F0E4C1',
-    fontSize: 16,
-    fontWeight: '700',
-    textTransform: 'lowercase',
-  },
-  removeButtonTextDisabled: {
-    opacity: 0.5,
-  },
-  closeButton: {
-    backgroundColor: 'rgba(240,228,193,0.1)',
-    paddingVertical: 12,
-    paddingHorizontal: 24,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: 'rgba(240,228,193,0.3)',
-    marginLeft: 6,
-  },
-  closeButtonText: {
-    color: '#F0E4C1',
-    fontSize: 16,
-    fontWeight: '700',
-    textTransform: 'lowercase',
-  },
-  photoCounter: {
-    color: 'rgba(240,228,193,0.6)',
-    fontSize: 14,
-    marginTop: 12,
-    textTransform: 'lowercase',
-  },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.9)', justifyContent: 'center', alignItems: 'center' },
+  modalBackground: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
+  modalContent: { width: '90%', alignItems: 'center' },
+  modalImage: { width: '100%', height: 400, borderRadius: 12, marginBottom: 20 },
+  removeButton: { backgroundColor: '#511619', padding: 12, borderRadius: 8 },
+  removeButtonText: { color: '#F0E4C1', fontWeight: 'bold' },
 });
