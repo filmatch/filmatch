@@ -73,7 +73,7 @@ export default function EditPreferencesScreen() {
       { title: 'groundhog day', year: '(1993)', uri: 'https://image.tmdb.org/t/p/w185/gCQt9ujSzcCR0js7QwNwx73PkJB.jpg' },
     ],
     thriller: [
-      { title: 'se7en', year: '(1995)', uri: 'https://image.tmdb.org/t/p/w185/6yoghtyTpznpBik8EngEmJskVUO.jpg' },
+      { title: 'se7en', year: '(1995)', uri: 'https://image.tmdb.org/t/p/w185/6oom5QYQ2yQTMJIbnvbkBL9cHo6.jpg' },
       { title: 'gone girl', year: '(2014)', uri: 'https://image.tmdb.org/t/p/w185/lv5xShBIDPe7m4ufdlV0IAc7Avk.jpg' },
       { title: 'prisoners', year: '(2013)', uri: 'https://image.tmdb.org/t/p/w185/uhviyknTT5cEQXbn6vWIqfM4vGm.jpg' },
     ],
@@ -145,6 +145,12 @@ export default function EditPreferencesScreen() {
       const currentUser = FirebaseAuthService.getCurrentUser();
       if (!currentUser) return;
       const profile = await FirestoreService.getUserProfile(currentUser.uid);
+      
+      console.log('=== LOADING DATA ===');
+      console.log('Profile loaded:', profile ? 'yes' : 'no');
+      console.log('Genre ratings loaded:', JSON.stringify(profile?.genreRatings, null, 2));
+      console.log('Has preferences:', profile?.hasPreferences);
+      
       if (profile) {
         setFavorites(profile.favorites || []);
         setRecentWatches(profile.recentWatches || []);
@@ -167,7 +173,8 @@ export default function EditPreferencesScreen() {
     genreRatings.some((rating) => rating.genre === genre && rating.rating > 0)
   );
 
-  const saveChanges = async () => {
+  // Not memoized to ensure it always reads the latest state
+ const saveChanges = async () => {
     if (!canContinueFavorites) {
       return Alert.alert('incomplete', `you need to add ${4 - favorites.length} more favorite(s)`);
     }
@@ -181,27 +188,51 @@ export default function EditPreferencesScreen() {
     try {
       setSaving(true);
       const currentUser = FirebaseAuthService.getCurrentUser();
-      if (!currentUser) return;
+      if (!currentUser) {
+        Alert.alert('error', 'not authenticated');
+        return;
+      }
+
+      console.log('=== SAVING DATA ===');
+      console.log('Favorites to save:', favorites);
+      console.log('Recent watches to save:', recentWatches);
+      console.log('Genre ratings to save:', genreRatings); // This will now log the full array
 
       await FirestoreService.saveUserProfile(currentUser.uid, {
         favorites,
         recentWatches,
         genreRatings,
+        hasPreferences: true,
       });
 
-      await FirestoreService.updateUserProfile(currentUser.uid, { hasPreferences: true });
+      await new Promise(resolve => setTimeout(resolve, 1500));
+
+      const verification = await FirestoreService.getUserProfile(currentUser.uid);
+      
+      console.log('=== VERIFICATION ===');
+      console.log('Genre ratings after save:', verification?.genreRatings?.length);
+
+      if (!verification?.hasPreferences) {
+        throw new Error('Verification failed: hasPreferences not set');
+      }
 
       Alert.alert('saved', 'your preferences have been updated!', [
         { text: 'ok', onPress: () => navigation.goBack() },
       ]);
     } catch (error) {
       console.error('error saving preferences:', error);
-      Alert.alert('error', 'failed to save your preferences. please try again.');
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      if (errorMessage.includes('PERMISSION_DENIED') || errorMessage.includes('permission')) {
+        Alert.alert('permission error', 'You do not have permission to save. Check your Firebase Firestore security rules.');
+      } else {
+        Alert.alert('error', `Failed to save preferences: ${errorMessage}`);
+      }
     } finally {
       setSaving(false);
     }
   };
 
+  // FIXED: Added full state dependencies to prevent stale closures
   const goNext = useCallback(() => {
     if (stepIndex === 0 && !canContinueFavorites) {
       return Alert.alert('incomplete', `you need to add ${4 - favorites.length} more favorite(s)`);
@@ -220,7 +251,16 @@ export default function EditPreferencesScreen() {
     } else {
       saveChanges();
     }
-  }, [stepIndex, steps.length, canContinueFavorites, canContinueRecents, canContinueGenres, favorites.length, recentWatches.length]);
+  }, [
+    stepIndex, 
+    steps.length, 
+    canContinueFavorites, 
+    canContinueRecents, 
+    canContinueGenres, 
+    favorites,         // ADDED: Full array dependency
+    recentWatches,     // ADDED: Full array dependency
+    genreRatings       // ADDED: Full array dependency (fixes "after 5" issue)
+  ]);
 
   const goBack = useCallback(() => {
     if (stepIndex > 0) {
@@ -247,7 +287,7 @@ export default function EditPreferencesScreen() {
       ...prev,
       { id: `fav_${movie.id}_${Date.now()}`, title: movie.title, year: movie.year },
     ]);
-   
+    setSearchQuery('');
   };
 
   const removeFavorite = (id: string) => setFavorites((prev) => prev.filter((f) => f.id !== id));
@@ -259,6 +299,7 @@ export default function EditPreferencesScreen() {
     setMovieToRate(movie);
     setTempRating(0);
     setShowRatingModal(true);
+    setSearchQuery('');
   };
 
   const confirmAddRecentWatch = () => {
@@ -409,6 +450,8 @@ export default function EditPreferencesScreen() {
         <View style={s.step}>
           <Text style={s.sectionTitle}>recent watches ({recentWatches.length} added)</Text>
           <Text style={s.stepHint}>add at least 4, but feel free to add more as you watch</Text>
+          
+          <Text style={s.helpTextTop}>the more recent watches you add, the better we can calculate compatibility</Text>
 
           <View style={s.searchContainer}>
             <TextInput
@@ -446,49 +489,51 @@ export default function EditPreferencesScreen() {
             </ScrollView>
           )}
 
-          <View style={s.currentItems}>
-            {recentWatches.map((movie) => (
-              <View key={movie.id} style={s.recentItem}>
-                <View style={s.movieHeader}>
-                  <View style={s.movieInfo}>
-                    <Text style={s.currentItemTitle}>{movie.title}</Text>
-                    <Text style={s.currentItemYear}>({movie.year ?? '—'})</Text>
-                  </View>
-                  <TouchableOpacity onPress={() => removeRecentWatch(movie.id)}>
-                    <Text style={s.removeButton}>×</Text>
-                  </TouchableOpacity>
-                </View>
-                <View style={s.starsRow}>
-                  {[1, 2, 3, 4, 5].map((star) => (
-                    <TouchableOpacity key={star} onPress={() => updateRecentRating(movie.id, star)} style={s.starButton}>
-                      <Text
-                        style={[
-                          s.starText,
-                          { fontFamily: starFontFamily },
-                          movie.rating >= star ? s.starFilled : s.starEmpty,
-                        ]}
-                      >
-                        ★
-                      </Text>
+          <ScrollView style={s.recentItemsScrollView} showsVerticalScrollIndicator={false}>
+            <View style={s.currentItems}>
+              {recentWatches.map((movie) => (
+                <View key={movie.id} style={s.recentItem}>
+                  <View style={s.movieHeader}>
+                    <View style={s.movieInfo}>
+                      <Text style={s.currentItemTitle}>{movie.title}</Text>
+                      <Text style={s.currentItemYear}>({movie.year ?? '—'})</Text>
+                    </View>
+                    <TouchableOpacity onPress={() => removeRecentWatch(movie.id)}>
+                      <Text style={s.removeButton}>×</Text>
                     </TouchableOpacity>
-                  ))}
-                  <Text style={s.numericRating}>{movie.rating}/5</Text>
+                  </View>
+                  <View style={s.starsRow}>
+                    {[1, 2, 3, 4, 5].map((star) => (
+                      <TouchableOpacity key={star} onPress={() => updateRecentRating(movie.id, star)} style={s.starButton}>
+                        <Text
+                          style={[
+                            s.starText,
+                            { fontFamily: starFontFamily },
+                            movie.rating >= star ? s.starFilled : s.starEmpty,
+                          ]}
+                        >
+                          ★
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                    <Text style={s.numericRating}>{movie.rating}/5</Text>
+                  </View>
                 </View>
-              </View>
-            ))}
-          </View>
+              ))}
+            </View>
+          </ScrollView>
 
           {!canContinueRecents && (
             <Text style={s.requirementText}>you need to add {4 - recentWatches.length} more recent watch(es)</Text>
           )}
-          
-          <Text style={s.helpText}>the more recent watches you add, the better we can calculate compatibility</Text>
         </View>
 
         {/* GENRES STEP */}
         <View style={s.step}>
           <Text style={s.bigTitle}>rate these genres</Text>
           <Text style={s.subtitle}>how do you feel about these genres?</Text>
+          
+          <Text style={s.helpTextTop}>the more genres you rate, the better we can calculate compatibility</Text>
 
           <ScrollView style={s.genresScrollView} showsVerticalScrollIndicator={false}>
             {genreList.map((genreItem) => {
@@ -541,7 +586,7 @@ export default function EditPreferencesScreen() {
               <Text style={s.requirementText}>please rate all required genres (action, romance, comedy, horror)</Text>
             )}
             
-            <Text style={s.helpText}>the more genres you rate, the better we can calculate compatibility</Text>
+            <View style={{ height: 50 }} />
           </ScrollView>
         </View>
       </ScrollView>
@@ -635,7 +680,7 @@ const s = StyleSheet.create({
   dot: { width: 6, height: 6, borderRadius: 3, backgroundColor: 'rgba(240, 228, 193, 0.25)', marginHorizontal: 3 },
   dotActive: { backgroundColor: 'rgba(240, 228, 193, 0.8)' },
 
-  step: { width, padding: 20 },
+  step: { width, padding: 20, flex: 1 },
 
   sectionTitle: { color: C.text, fontSize: 20, fontWeight: 'bold', marginBottom: 4, textTransform: 'lowercase' },
   stepHint: { color: C.dim, fontSize: 13, marginBottom: 12, textTransform: 'lowercase' },
@@ -655,14 +700,14 @@ const s = StyleSheet.create({
   },
   searchIndicator: { position: 'absolute', right: 16, top: 14 },
 
-  searchResults: { maxHeight: 200, marginBottom: 20 },
+  searchResults: { maxHeight: 200, marginBottom: 20, borderWidth: 1, borderColor: 'rgba(240, 228, 193, 0.15)', borderRadius: 12, backgroundColor: 'rgba(0,0,0,0.4)' },
   searchResultItem: {
     flexDirection: 'row',
     alignItems: 'center',
     padding: 12,
-    backgroundColor: 'rgba(240, 228, 193, 0.05)',
-    marginBottom: 8,
-    borderRadius: 8,
+    backgroundColor: 'transparent',
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(240, 228, 193, 0.05)',
   },
   posterThumb: { width: 35, height: 50, borderRadius: 4, marginRight: 12 },
   posterPlaceholder: { backgroundColor: 'rgba(240, 228, 193, 0.1)', alignItems: 'center', justifyContent: 'center' },
@@ -678,6 +723,7 @@ const s = StyleSheet.create({
   currentItemYear: { color: C.dim, fontSize: 14 },
   removeButton: { color: C.dim, fontSize: 24, fontWeight: 'bold' },
 
+  recentItemsScrollView: { flex: 1 }, 
   recentItem: { backgroundColor: 'rgba(81, 22, 25, 0.2)', padding: 12, borderRadius: 8, marginBottom: 8 },
   movieHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
 
@@ -688,7 +734,7 @@ const s = StyleSheet.create({
   starEmpty: { color: 'rgba(240, 228, 193, 0.3)' },
   numericRating: { color: C.text, fontSize: 14, marginLeft: 8, opacity: 0.8 },
 
-  genresScrollView: { flex: 1, marginTop: 20 },
+  genresScrollView: { flex: 1, marginTop: 10 },
   genreCard: { 
     backgroundColor: C.card, 
     borderRadius: 20, 
@@ -710,6 +756,7 @@ const s = StyleSheet.create({
   genreStarText: { fontSize: 24, fontWeight: 'bold', marginHorizontal: 2 },
 
   requirementText: { color: C.accent, textAlign: 'center', marginTop: 16, fontSize: 14, textTransform: 'lowercase' },
+  helpTextTop: { color: C.dim, textAlign: 'center', marginTop: 0, marginBottom: 16, fontSize: 13, textTransform: 'lowercase', fontStyle: 'italic' }, 
   helpText: { color: C.dim, textAlign: 'center', marginTop: 12, fontSize: 13, textTransform: 'lowercase', fontStyle: 'italic' },
 
   footer: { padding: 16 },

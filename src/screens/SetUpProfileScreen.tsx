@@ -1,10 +1,12 @@
 // src/screens/SetUpProfileScreen.tsx
 import React, { useState } from 'react';
 import {
-  View, Text, TextInput, StyleSheet, TouchableOpacity, ScrollView, Modal, FlatList
+  View, Text, TextInput, StyleSheet, TouchableOpacity, ScrollView, Modal, FlatList, Image, Alert
 } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
 import { FirebaseAuthService } from '../services/FirebaseAuthService';
 import { FirestoreService } from '../services/FirestoreService';
+import { FirebaseStorageService } from '../services/FirebaseStorageService';
 
 const C = { bg: '#111C2A', card: '#121D2B', text: '#F0E4C1', dim: 'rgba(240,228,193,0.75)', accent: '#511619' };
 
@@ -32,22 +34,53 @@ export default function SetUpProfileScreen({ navigation }: any) {
   const [genderPreferences, setGenderPreferences] = useState<string[]>([]);
   const [city, setCity] = useState<string>('');
   const [bio, setBio] = useState<string>('');
+  const [photos, setPhotos] = useState<string[]>([]);
   const [cityOpen, setCityOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
 
   const ageNum = Number(age);
   const ageValid = Number.isFinite(ageNum) && ageNum >= 18 && ageNum <= 100;
   const genderValid = !!gender;
   const genderPrefValid = genderPreferences.length > 0;
   const cityValid = city.trim().length > 0;
+  const photosValid = photos.length > 0;
   const bioRemaining = 160 - bio.length;
 
-  const canContinue = ageValid && genderValid && genderPrefValid && cityValid && !saving;
+  const canContinue = ageValid && genderValid && genderPrefValid && cityValid && photosValid && !saving;
 
   const toggleGenderPref = (g: string) => {
     setGenderPreferences(prev =>
       prev.includes(g) ? prev.filter(x => x !== g) : [...prev, g]
     );
+  };
+
+  const pickImage = async () => {
+    if (photos.length >= 6) {
+      Alert.alert('limit reached', 'you can upload up to 6 photos');
+      return;
+    }
+
+    const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permissionResult.granted) {
+      Alert.alert('permission needed', 'we need access to your photos');
+      return;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect: [3, 4],
+      quality: 0.8,
+    });
+
+    if (!result.canceled && result.assets[0]) {
+      setPhotos(prev => [...prev, result.assets[0].uri]);
+    }
+  };
+
+  const removePhoto = (uri: string) => {
+    setPhotos(prev => prev.filter(x => x !== uri));
   };
 
   const save = async () => {
@@ -57,18 +90,35 @@ export default function SetUpProfileScreen({ navigation }: any) {
     }
     try {
       setSaving(true);
+      setUploading(true);
       const u = FirebaseAuthService.getCurrentUser();
       if (!u) {
         console.log('No user found');
+        Alert.alert('error', 'no user found. please log in again.');
         return;
       }
+      
+      // Upload photos first
+      console.log('Uploading', photos.length, 'photos...');
+      const photoUrls: string[] = [];
+      for (let i = 0; i < photos.length; i++) {
+        const url = await FirebaseStorageService.uploadProfilePhoto(photos[i], u.uid, i);
+        photoUrls.push(url);
+        console.log(`Photo ${i + 1}/${photos.length} uploaded`);
+      }
+      
+      console.log('All photos uploaded, saving profile...');
+      
+      // Create profile if missing
       await FirestoreService.createUserProfileIfMissing(u.uid);
       
+      // Prepare profile data
       const profileData: any = {
         age: ageNum,
         gender,
         genderPreferences,
         city: city.trim(),
+        photos: photoUrls,
         hasProfile: true,
       };
       
@@ -77,12 +127,20 @@ export default function SetUpProfileScreen({ navigation }: any) {
         profileData.bio = bio.trim();
       }
       
-      await FirestoreService.updateUserProfile(u.uid, profileData);
+      // Save profile using saveUserProfile (not updateUserProfile)
+      await FirestoreService.saveUserProfile(u.uid, profileData);
+      
+      console.log('Profile saved successfully!');
       navigation.replace('EditPreferences');
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error saving profile:', error);
+      Alert.alert(
+        'error', 
+        error.message || 'failed to save profile. please try again.'
+      );
     } finally {
       setSaving(false);
+      setUploading(false);
     }
   };
 
@@ -150,14 +208,30 @@ export default function SetUpProfileScreen({ navigation }: any) {
           multiline
         />
 
-        <Text style={[s.label, { marginTop: 16 }]}>photos</Text>
-        <View style={s.photosBox}>
-          <Text style={s.dim}>photo uploader coming next</Text>
+        <Text style={[s.label, { marginTop: 16 }]}>
+          photos <Text style={s.dim}>(add at least 1, max 6)</Text>
+        </Text>
+        <View style={s.photosGrid}>
+          {photos.map((uri, idx) => (
+            <View key={idx} style={s.photoBox}>
+              <Image source={{ uri }} style={s.photo} />
+              <TouchableOpacity onPress={() => removePhoto(uri)} style={s.removeBtn}>
+                <Text style={s.removeTxt}>✕</Text>
+              </TouchableOpacity>
+            </View>
+          ))}
+          {photos.length < 6 && (
+            <TouchableOpacity onPress={pickImage} style={s.addPhotoBox}>
+              <Text style={s.addPhotoTxt}>+</Text>
+            </TouchableOpacity>
+          )}
         </View>
       </View>
 
       <TouchableOpacity disabled={!canContinue} onPress={save} style={[s.primary, !canContinue && { opacity: 0.5 }]}>
-        <Text style={s.primaryText}>{saving ? 'saving…' : 'continue'}</Text>
+        <Text style={s.primaryText}>
+          {uploading ? 'uploading photos…' : saving ? 'saving…' : 'continue'}
+        </Text>
       </TouchableOpacity>
 
       <Modal visible={cityOpen} transparent animationType="fade" onRequestClose={() => setCityOpen(false)}>
@@ -245,14 +319,53 @@ const s = StyleSheet.create({
   pickerTxt: { color: C.text, textTransform: 'lowercase', fontSize: 15 },
   pickerPlaceholder: { color: C.dim, textTransform: 'lowercase', fontSize: 15 },
 
-  photosBox: {
-    height: 96,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.06)',
+  photosGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  photoBox: {
+    width: 100,
+    height: 130,
+    borderRadius: 12,
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  photo: {
+    width: '100%',
+    height: '100%',
+  },
+  removeBtn: {
+    position: 'absolute',
+    top: 4,
+    right: 4,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  removeTxt: {
+    color: C.text,
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  addPhotoBox: {
+    width: 100,
+    height: 130,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: 'rgba(255,255,255,0.12)',
+    borderStyle: 'dashed',
     backgroundColor: 'rgba(240,228,193,0.05)',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  addPhotoTxt: {
+    color: C.text,
+    fontSize: 40,
+    fontWeight: '300',
   },
 
   primary: { backgroundColor: C.accent, borderRadius: 14, paddingVertical: 14, alignItems: 'center', marginTop: 18 },
