@@ -1,8 +1,9 @@
-// config/firebase.ts
 import { initializeApp } from 'firebase/app';
-import { getAuth } from 'firebase/auth';
+// @ts-ignore: known firebase bug, this function exists but types are missing
+import { initializeAuth, getReactNativePersistence, getAuth } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
-import { getStorage } from 'firebase/storage';
+import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const firebaseConfig = {
   apiKey: process.env.EXPO_PUBLIC_FIREBASE_API_KEY,
@@ -15,14 +16,17 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 
-const auth = getAuth(app);
+// Initialize Auth with React Native Persistence (AsyncStorage)
+const auth = initializeAuth(app, {
+  persistence: getReactNativePersistence(AsyncStorage)
+});
+
 const db = getFirestore(app);
 const storage = getStorage(app);
 
 export { app, auth, db, storage, firebaseConfig };
 
-import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
-import { storage as FirebaseStorage } from '../config/firebase';
+// --- Restored Storage Service ---
 
 export class FirebaseStorageService {
   /**
@@ -42,6 +46,7 @@ export class FirebaseStorageService {
       const filename = `profile_photos/${userId}/photo_${photoIndex}_${timestamp}.jpg`;
       console.log('Uploading to path:', filename);
       
+      // Use the 'storage' instance exported above
       const storageRef = ref(storage, filename);
       await uploadBytes(storageRef, blob);
       console.log('Upload successful');
