@@ -9,7 +9,8 @@ import { FirestoreService } from '../services/FirestoreService';
 
 import WelcomeScreen from '../components/WelcomeScreen';
 import AuthScreen from '../components/AuthScreen';
-import OnboardingScreen from '../components/OnboardingScreen';
+import SetUpProfileScreen from '../screens/SetUpProfileScreen';
+import EditPreferencesScreen from '../screens/EditPreferencesScreen';
 import MainApp from './MainApp';
 
 const AUTH_DOMAIN = (process.env.EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN || '')
@@ -18,8 +19,15 @@ const AUTH_DOMAIN = (process.env.EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN || '')
 const REQUIRE_VERIFIED = (process.env.EXPO_PUBLIC_REQUIRE_VERIFIED || 'true') === 'true';
 const actionCodeSettings = { url: `https://${AUTH_DOMAIN}/verify-complete`, handleCodeInApp: false };
 
-type AuthState = 'loading' | 'unauthenticated' | 'verify' | 'onboarding' | 'authenticated';
+type AuthState = 'loading' | 'unauthenticated' | 'verify' | 'setupProfile' | 'setupPreferences' | 'authenticated';
 const Stack = createStackNavigator();
+
+const DefaultFallbackScreen = () => (
+  <View style={styles.center}>
+    <ActivityIndicator size="large" color="#F0E4C1" />
+    <Text style={styles.dim}>checking app state...</Text>
+  </View>
+);
 
 export default function AuthNavigator() {
   const [state, setState] = useState<AuthState>('loading');
@@ -29,51 +37,126 @@ export default function AuthNavigator() {
 
   const needsVerification = (u: User) =>
     u.providerData?.some((p) => p?.providerId === 'password') && !u.emailVerified;
-const routeAfterAuth = async (u: User) => {
-  if (REQUIRE_VERIFIED && needsVerification(u)) {
-    setState('verify');
-    return;
-  }
-  try {
-    await FirestoreService.createUserProfileIfMissing(u.uid);
-    const has = await FirestoreService.hasCompletedOnboarding(u.uid);
-    setState(has ? 'authenticated' : 'onboarding');
-  } catch (error) {
-    console.error('Error in routeAfterAuth:', error);
-    setState('onboarding');
-  }
-};
 
-  useEffect(() => {
-    const unsub = FirebaseAuthService.onAuthStateChanged(async (u) => {
-      if (!u) {
-        setState('unauthenticated');
+  const routeAfterAuth = async (u: User) => {
+    // ⚠️ Optimization: Prevent re-running heavy checks if we're already on a setup/verify screen.
+    if (state === 'setupProfile' || state === 'setupPreferences' || state === 'verify') {
+        console.log(`⏭️ Already on a setup/verify screen: ${state}, skipping routing...`);
+        return;
+    }
+    
+    // CRITICAL: Set to loading first to clear the screen during checks
+    setState('loading');
+    
+    // 1. Check for Email Verification
+    if (REQUIRE_VERIFIED && needsVerification(u)) {
+      setState('verify');
+      return;
+    }
+    
+    try {
+      await FirestoreService.createUserProfileIfMissing(u.uid);
+      const profile = await FirestoreService.getUserProfile(u.uid);
+      
+      if (!profile) {
+        console.log('❌ No profile found, routing to setup');
+        setState('setupProfile');
         return;
       }
+
+      console.log('📋 Profile data:', {
+        hasProfile: profile.hasProfile,
+        hasPreferences: profile.hasPreferences,
+        age: profile.age,
+        city: profile.city,
+        gender: profile.gender,
+        photos: profile.photos?.length || 0,
+        genreRatings: profile.genreRatings?.length || 0,
+        favorites: profile.favorites?.length || 0,
+      });
+
+      // 2. STRICT profile check - must have explicit hasProfile flag OR all required fields
+      const hasProfile = profile.hasProfile === true || 
+        (
+          typeof profile.age === 'number' && 
+          profile.age > 0 &&
+          typeof profile.city === 'string' && 
+          profile.city.length > 0 &&
+          Array.isArray(profile.gender) && 
+          profile.gender.length > 0 &&
+          Array.isArray(profile.photos) && 
+          profile.photos.length > 0
+        );
+
+      if (!hasProfile) {
+        console.log('❌ Profile incomplete, routing to setup');
+        setState('setupProfile');
+        return;
+      }
+
+      // 3. STRICT preferences check - must have explicit hasPreferences flag OR preference data
+      const hasPreferences = profile.hasPreferences === true ||
+        (
+          (Array.isArray(profile.genreRatings) && profile.genreRatings.length > 0) ||
+          (Array.isArray(profile.favorites) && profile.favorites.length > 0)
+        );
+
+      if (!hasPreferences) {
+        console.log('❌ Preferences incomplete, routing to preferences');
+        setState('setupPreferences');
+        return;
+      }
+
+      // 4. Both profile and preferences are complete
+      console.log('✅ Setup complete, routing to main app');
+      setState('authenticated');
+    } catch (error) {
+      console.error('❌ Error in routeAfterAuth:', error);
+      // Default to profile setup on error to be safe
+      setState('setupProfile');
+    }
+  };
+
+  useEffect(() => {
+    let isInitialRoutingComplete = false;
+    
+    const unsub = FirebaseAuthService.onAuthStateChanged(async (u) => {
+      // 💡 Skip if already authenticated and this is not the first run
+      if (u && isInitialRoutingComplete && state === 'authenticated') {
+         console.log('⏭️ Auth change detected on authenticated user, ignoring re-route.');
+         return;
+      }
+
+      if (!u) {
+        setState('unauthenticated');
+        isInitialRoutingComplete = true;
+        return;
+      }
+      
+      // Before routing, ensure user data is fresh
       try {
         await reload(u);
       } catch {}
       const cur = auth.currentUser;
+      
       if (!cur) {
         setState('unauthenticated');
+        isInitialRoutingComplete = true;
         return;
       }
+      
       await routeAfterAuth(cur);
+      isInitialRoutingComplete = true;
     });
     return unsub;
-  }, []);
+  }, []); // <--- FIX: Dependency array is now EMPTY: []
 
-  if (state === 'loading') {
-    return (
-      <View style={styles.center}>
-        <ActivityIndicator size="large" color="#F0E4C1" />
-        <Text style={styles.dim}>loading…</Text>
-      </View>
-    );
-  }
-
+  // Render navigator for all states - loading will show Fallback screen
   return (
-    <Stack.Navigator screenOptions={{ headerShown: false }}>
+    <Stack.Navigator 
+      key={state}
+      screenOptions={{ headerShown: false }}
+    >
       {state === 'unauthenticated' ? (
         <>
           {subStep === 'welcome' ? (
@@ -128,19 +211,19 @@ const routeAfterAuth = async (u: User) => {
                       }
                       if (!REQUIRE_VERIFIED || !needsVerification(uu)) await routeAfterAuth(uu);
                       else {
-                        setNote('still not verified — open the email link, then tap refresh');
+                        setNote('still not verified – open the email link, then tap refresh');
                         setTimeout(() => setNote(''), 3000);
                       }
                     };
                     if (Platform.OS === 'android') setTimeout(done, 400);
                     else await done();
                   } catch (e: any) {
-                    setNote(e?.message || 'could not refresh — try again');
+                    setNote(e?.message || 'could not refresh – try again');
                     setTimeout(() => setNote(''), 3000);
                   }
                 }}
               >
-                <Text style={styles.primaryText}>i verified — refresh</Text>
+                <Text style={styles.primaryText}>i verified – refresh</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
@@ -156,7 +239,7 @@ const routeAfterAuth = async (u: User) => {
                     setNote('');
                     await reload(u);
                     if (!REQUIRE_VERIFIED || !needsVerification(u)) {
-                      setNote('already verified — press refresh');
+                      setNote('already verified – press refresh');
                       setTimeout(() => setNote(''), 2500);
                       return;
                     }
@@ -164,7 +247,7 @@ const routeAfterAuth = async (u: User) => {
                     setNote('verification email resent');
                     setTimeout(() => setNote(''), 2500);
                   } catch (e: any) {
-                    setNote(e?.code || e?.message || 'could not resend — try again later');
+                    setNote(e?.code || e?.message || 'could not resend – try again later');
                     setTimeout(() => setNote(''), 3500);
                   }
                 }}
@@ -186,12 +269,49 @@ const routeAfterAuth = async (u: User) => {
             </View>
           )}
         </Stack.Screen>
-      ) : state === 'onboarding' ? (
-        <Stack.Screen name="Onboarding">
-          {() => <OnboardingScreen onComplete={() => setState('authenticated')} />}
+      ) : state === 'setupProfile' ? (
+        <Stack.Screen 
+          name="SetUpProfile" 
+          options={{
+            gestureEnabled: false,
+            headerShown: false, 
+          }}
+        >
+          {() => (
+            <SetUpProfileScreen 
+              onComplete={() => {
+                console.log('✅ Profile setup complete, triggering re-route check...');
+                setState('loading'); // Trigger re-route logic
+              }}
+            />
+          )}
         </Stack.Screen>
-      ) : (
+      ) : state === 'setupPreferences' ? (
+        <Stack.Screen 
+          name="EditPreferences"
+          options={{
+            gestureEnabled: false,
+            headerShown: false,
+          }}
+        >
+          {() => (
+            <EditPreferencesScreen
+              onComplete={() => {
+                console.log('✅ Preferences complete, triggering re-route check...');
+                setState('loading'); // Trigger re-route logic
+              }}
+              onBack={() => {
+                console.log('⬅️ Going back to profile setup');
+                setState('setupProfile');
+              }}
+            />
+          )}
+        </Stack.Screen>
+      ) : state === 'authenticated' ? (
         <Stack.Screen name="MainApp" component={MainApp} />
+      ) : (
+        // Any other state (including 'loading') shows fallback
+        <Stack.Screen name="Fallback" component={DefaultFallbackScreen} />
       )}
     </Stack.Navigator>
   );

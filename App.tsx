@@ -8,7 +8,6 @@ import { onAuthStateChanged, User } from 'firebase/auth';
 
 // Navigation
 import AuthNavigator from './src/navigation/AuthNavigator';
-import MainApp from './src/navigation/MainApp'; 
 import { navigationRef } from './src/navigation/RootNavigation';
 
 // Config
@@ -35,20 +34,19 @@ class AppErrorBoundary extends React.Component<{ children: React.ReactNode }, { 
 }
 
 export default function App() {
-  // initializing: Are we still checking if the user is logged in?
+  // We keep the state logic, but only to avoid rendering NavigationContainer
+  // until Firebase auth state is loaded, not to choose the navigator.
   const [initializing, setInitializing] = useState(true);
-  // user: The currently logged in user (or null)
   const [user, setUser] = useState<User | null>(null);
 
   useEffect(() => {
-    // This listener fires automatically when the app opens 
-    // OR when you sign in/sign out.
+    // We only need to know if the state has been loaded.
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-      setUser(currentUser);
+      setUser(currentUser); // This still runs in the background
       if (initializing) setInitializing(false);
     });
 
-    return unsubscribe; // Cleanup when app closes
+    return unsubscribe; 
   }, []);
 
   if (initializing) {
@@ -65,8 +63,9 @@ export default function App() {
       <StatusBar style="light" />
       <AppErrorBoundary>
         <NavigationContainer ref={navigationRef}>
-          {/* If user is logged in, show MainApp. Otherwise, show Auth (Login/Welcome) */}
-          {user ? <MainApp /> : <AuthNavigator />}
+          {/* 💡 FIX: The AuthNavigator is now the single root component. 
+          It contains all logic for checking profile and rendering MainApp internally. */}
+          <AuthNavigator />
         </NavigationContainer>
       </AppErrorBoundary>
     </GestureHandlerRootView>

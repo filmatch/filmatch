@@ -28,8 +28,8 @@ const SORTED_CITIES = [...CITY_LIST].sort((a, b) =>
   a.localeCompare(b, 'tr', { sensitivity: 'base' })
 );
 
-export default function SetUpProfileScreen({ navigation }: any) {
-  const [age, setAge] = useState<string>('');
+export default function SetUpProfileScreen({ onComplete }: { onComplete: () => void }) {
+   const [age, setAge] = useState<string>('');
   const [gender, setGender] = useState<string>('');
   const [genderPreferences, setGenderPreferences] = useState<string[]>([]);
   const [city, setCity] = useState<string>('');
@@ -131,7 +131,7 @@ export default function SetUpProfileScreen({ navigation }: any) {
       await FirestoreService.saveUserProfile(u.uid, profileData);
       
       console.log('Profile saved successfully!');
-      navigation.replace('EditPreferences');
+    onComplete();
     } catch (error: any) {
       console.error('Error saving profile:', error);
       Alert.alert(

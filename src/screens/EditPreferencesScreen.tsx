@@ -16,7 +16,7 @@ import {
   Dimensions,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation } from '@react-navigation/native'; // Keep the import for potential internal use, but we won't use the instance
 import { FirebaseAuthService } from '../services/FirebaseAuthService';
 import { FirestoreService } from '../services/FirestoreService';
 import TMDbService, { Movie } from '../services/TMDbService';
@@ -27,8 +27,17 @@ const { width, height } = Dimensions.get('window');
 
 type StepKey = 'favorites' | 'recent' | 'genres';
 
-export default function EditPreferencesScreen() {
-  const navigation = useNavigation();
+// --- NEW PROPS DEFINITION ---
+type EditPreferencesScreenProps = {
+  onComplete: () => void;
+  onBack: () => void;
+};
+// ----------------------------
+
+// Update the component signature to accept the new props
+export default function EditPreferencesScreen({ onComplete, onBack }: EditPreferencesScreenProps) {
+  // We keep the useNavigation import for reference, but the hook instance is no longer needed
+  // const navigation = useNavigation(); 
   const starFontFamily = Platform.select({ ios: 'System', android: 'sans-serif' });
 
   const steps: StepKey[] = ['favorites', 'recent', 'genres'];
@@ -173,7 +182,7 @@ export default function EditPreferencesScreen() {
     genreRatings.some((rating) => rating.genre === genre && rating.rating > 0)
   );
 
-  // Not memoized to ensure it always reads the latest state
+  // Updated saveChanges to use onComplete prop
  const saveChanges = async () => {
     if (!canContinueFavorites) {
       return Alert.alert('incomplete', `you need to add ${4 - favorites.length} more favorite(s)`);
@@ -196,7 +205,7 @@ export default function EditPreferencesScreen() {
       console.log('=== SAVING DATA ===');
       console.log('Favorites to save:', favorites);
       console.log('Recent watches to save:', recentWatches);
-      console.log('Genre ratings to save:', genreRatings); // This will now log the full array
+      console.log('Genre ratings to save:', genreRatings);
 
       await FirestoreService.saveUserProfile(currentUser.uid, {
         favorites,
@@ -217,7 +226,7 @@ export default function EditPreferencesScreen() {
       }
 
       Alert.alert('saved', 'your preferences have been updated!', [
-        { text: 'ok', onPress: () => navigation.goBack() },
+        { text: 'ok', onPress: onComplete }, // <-- Use onComplete prop here
       ]);
     } catch (error) {
       console.error('error saving preferences:', error);
@@ -232,7 +241,7 @@ export default function EditPreferencesScreen() {
     }
   };
 
-  // FIXED: Added full state dependencies to prevent stale closures
+  // Fixed goNext dependencies and logic
   const goNext = useCallback(() => {
     if (stepIndex === 0 && !canContinueFavorites) {
       return Alert.alert('incomplete', `you need to add ${4 - favorites.length} more favorite(s)`);
@@ -257,11 +266,14 @@ export default function EditPreferencesScreen() {
     canContinueFavorites, 
     canContinueRecents, 
     canContinueGenres, 
-    favorites,         // ADDED: Full array dependency
-    recentWatches,     // ADDED: Full array dependency
-    genreRatings       // ADDED: Full array dependency (fixes "after 5" issue)
+    favorites, 
+    recentWatches, 
+    genreRatings,
+    onComplete, // ADDED: onComplete dependency for saveChanges
+    saveChanges
   ]);
 
+  // Updated goBack to use onBack prop
   const goBack = useCallback(() => {
     if (stepIndex > 0) {
       const prev = stepIndex - 1;
@@ -271,10 +283,10 @@ export default function EditPreferencesScreen() {
       if (isNewUser) {
         Alert.alert('preferences required', 'you need to complete your preferences before using the app');
       } else {
-        navigation.goBack();
+        onBack(); // <-- Use onBack prop here
       }
     }
-  }, [stepIndex, navigation, isNewUser]);
+  }, [stepIndex, onBack, isNewUser]); // ADDED: onBack dependency
 
   const addFavorite = (movie: Movie) => {
     if (favorites.length >= 4) {
@@ -320,6 +332,7 @@ export default function EditPreferencesScreen() {
     setTempRating(0);
   };
 
+  // The 'id' parameter is correctly defined as string here, but calling code needs to ensure the argument is a string.
   const removeRecentWatch = (id: string) => setRecentWatches((prev) => prev.filter((w) => w.id !== id));
 
   const updateRecentRating = (id: string, rating: number) =>
@@ -434,9 +447,10 @@ export default function EditPreferencesScreen() {
                   <Text style={s.currentItemTitle}>{m.title}</Text>
                   <Text style={s.currentItemYear}>({m.year ?? '—'})</Text>
                 </View>
-                <TouchableOpacity onPress={() => removeFavorite(m.id)}>
-                  <Text style={s.removeButton}>×</Text>
-                </TouchableOpacity>
+                {/* FIX 1: Correctly call removeFavorite with m.id (not movie.id) and cast m.id to string */}
+               <TouchableOpacity onPress={() => removeFavorite(String(m.id))}>
+                   <Text style={s.removeButton}>×</Text>
+               </TouchableOpacity>
               </View>
             ))}
           </View>
@@ -498,13 +512,18 @@ export default function EditPreferencesScreen() {
                       <Text style={s.currentItemTitle}>{movie.title}</Text>
                       <Text style={s.currentItemYear}>({movie.year ?? '—'})</Text>
                     </View>
-                    <TouchableOpacity onPress={() => removeRecentWatch(movie.id)}>
+                    {/* FIX 2: Cast movie.id to string for removeRecentWatch */}
+                    <TouchableOpacity onPress={() => removeRecentWatch(String(movie.id))}>
                       <Text style={s.removeButton}>×</Text>
                     </TouchableOpacity>
                   </View>
                   <View style={s.starsRow}>
                     {[1, 2, 3, 4, 5].map((star) => (
-                      <TouchableOpacity key={star} onPress={() => updateRecentRating(movie.id, star)} style={s.starButton}>
+                      <TouchableOpacity 
+                        key={star} 
+                        // FIX 3: Cast movie.id to string for updateRecentRating
+                        onPress={() => updateRecentRating(String(movie.id), star)} 
+                        style={s.starButton}>
                         <Text
                           style={[
                             s.starText,
