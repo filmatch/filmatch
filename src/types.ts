@@ -1,24 +1,13 @@
 // src/types.ts
-
 export type FavoriteMovie = {
-  id: string;
+  id: string | number;
   title: string;
   year?: number;
+  poster?: string; // Eşleşme ekranında posteri buraya ekliyoruz
 };
-export interface MovieWithUserData extends Movie {
-  tmdb_id?: string | number;
-  userRating?: number;
-  userStatus?: 'watched' | 'watchlist';
-  release_date?: string;
-  overview?: string;
-  runtime?: number;
-  director?: string;
-  genres?: string[];
-  cast?: string[];
-  vote_average?: number;
-}
+
 export type RecentWatch = {
-  id: string;
+  id: string | number;
   title: string;
   year?: number;
   rating: number; // 1-5
@@ -35,12 +24,12 @@ export type UserProfile = {
   displayName?: string;
 
   // Profile fields
-  age?: number;           // 18–100
+  age?: number;
   city?: string;
-  gender?: string;        // "female" | "male" | "nonbinary" | "other"
-  genderPreferences?: string[]; // ["female", "male", "nonbinary", "other"] - can select multiple
-  bio?: string;           // <= 160
-  photos?: string[];      // storage URLs (optional)
+  gender?: string;              // "female" | "male" | "nonbinary" | "other"
+  genderPreferences?: string[]; // ["female", "male"...]
+  bio?: string;
+  photos?: string[];            // storage URLs
 
   // Preferences
   favorites?: FavoriteMovie[];
@@ -55,10 +44,19 @@ export type UserProfile = {
   updatedAt?: number;
 };
 
-// Used by Search/MovieDetail
 export type Movie = {
-  id: string | number;
+  id: number;
+  tmdb_id: number;
   title: string;
   year?: number;
-  poster_path?: string | null;
+  poster_path: string | null;
+  backdrop_path: string | null;
+  genres: string[];
+  director?: string;
+  rating?: number;
+  overview: string;
+  runtime?: number;
+  cast?: string[];
+  release_date?: string;
+  vote_average?: number;
 };
