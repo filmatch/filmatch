@@ -13,16 +13,26 @@ import {
   RefreshControl,
   Dimensions,
 } from 'react-native';
-import { Image } from 'expo-image'; // YENİ: Hızlı resim kütüphanesi
+import { Image } from 'expo-image'; 
 import { StatusBar } from 'expo-status-bar';
 import { useNavigation } from '@react-navigation/native';
 import TMDbService, { Movie } from '../services/TMDbService';
 import debounce from 'lodash.debounce';
 
 const { width } = Dimensions.get('window');
-const CARD_W = (width - 48) / 3; // 3 sütunlu düzgün hesaplama
+
+// --- 3 SÜTUNLU GRID AYARLARI (KESİN HESAP) ---
+const GAP = 12;
+const PADDING = 16;
+// Matematik: (Ekran - SolSağPadding - 2 tane AraBoşluk) / 3
+const GRID_CARD_W = (width - (PADDING * 2) - (GAP * 2)) / 3; 
+
+// --- YATAY LİSTE ---
+const HORIZONTAL_CARD_W = (width - PADDING) / 3.5; // 3.5 tane görünsün
+
 const BLURHASH = '|rF?hV%2WCj[ayj[a|j[az_NaeWBj@ayfRayfQfQfQfQfQfQfQfQfQfQfQfQfQfQfQfQfQfQfQfQfQfQfQfQfQfQfQfQfQfQfQfQfQfQfQfQfQfQfQfQfQfQ';
 
+// --- İKONLAR ---
 const Magnifier = ({ color = '#F0E4C1' }: { color?: string }) => (
   <View style={{ width: 20, height: 20, alignItems: 'center', justifyContent: 'center' }}>
     <View style={{ width: 12, height: 12, borderRadius: 6, borderWidth: 2, borderColor: color }} />
@@ -37,14 +47,26 @@ const CrossIcon = ({ color = 'rgba(240, 228, 193, 0.6)' }: { color?: string }) =
   </View>
 );
 
+const shuffleArray = (array: Movie[]) => {
+  let currentIndex = array.length, randomIndex;
+  while (currentIndex !== 0) {
+    randomIndex = Math.floor(Math.random() * currentIndex);
+    currentIndex--;
+    [array[currentIndex], array[randomIndex]] = [array[randomIndex], array[currentIndex]];
+  }
+  return array;
+};
+
 export default function SearchScreen() {
   const navigation = useNavigation<any>();
   const [query, setQuery] = useState('');
   const [searchResults, setSearchResults] = useState<Movie[]>([]);
+  
+  const [nowPlayingMovies, setNowPlayingMovies] = useState<Movie[]>([]);
   const [trendingMovies, setTrendingMovies] = useState<Movie[]>([]);
-  const [popularMovies, setPopularMovies] = useState<Movie[]>([]); // EKSİK OLAN SATIR
+  const [popularMovies, setPopularMovies] = useState<Movie[]>([]);
+
   const [searchLoading, setSearchLoading] = useState(false);
-  const [discoverLoading, setDiscoverLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
@@ -53,18 +75,23 @@ export default function SearchScreen() {
 
   const loadDiscover = async () => {
     try {
-      const [trending, popular] = await Promise.all([
+      const [nowPlaying, trending, page1, page2, page3] = await Promise.all([
+        TMDbService.getNowPlayingMovies(),
         TMDbService.getTrendingMovies('week'),
-        TMDbService.getTopRatedMovies(),
+        TMDbService.getTopRatedMovies(1),
+        TMDbService.getTopRatedMovies(2),
+        TMDbService.getTopRatedMovies(3),
       ]);
-      console.log('Discover Loaded:', { trending: trending?.length, popular: popular?.length });
-      setTrendingMovies((trending ?? []).slice(0, 20));
-      setPopularMovies((popular ?? []).slice(0, 40));
+
+      const allTopRated = [...(page1||[]), ...(page2||[]), ...(page3||[])];
+      const shuffledTopRated = shuffleArray(allTopRated);
+
+      setNowPlayingMovies((nowPlaying ?? []).slice(0, 15));
+      setTrendingMovies((trending ?? []).slice(0, 15));
+      setPopularMovies(shuffledTopRated.slice(0, 21)); 
+      
     } catch (error) {
       console.error(error);
-      Alert.alert('error', 'failed to load movies.');
-    } finally {
-      setDiscoverLoading(false);
     }
   };
 
@@ -99,148 +126,213 @@ export default function SearchScreen() {
     debouncedSearch(t);
   };
 
+  const clearSearch = () => {
+    setQuery('');
+    setSearchResults([]);
+    setSearchLoading(false);
+  };
+
   const openMovie = (m: Movie) => navigation.navigate('MovieDetail', { movie: m });
 
-  const renderCard = ({ item }: { item: Movie }) => (
-    <TouchableOpacity style={styles.card} onPress={() => openMovie(item)}>
+  // --- KART BİLEŞENLERİ ---
+
+  // 1. Dikey Grid Kartı (3 Sütun - İsim ve Yıl Var)
+  const renderGridCard = ({ item }: { item: Movie }) => (
+    <TouchableOpacity style={styles.gridCard} onPress={() => openMovie(item)}>
       <Image
         source={{ uri: `https://image.tmdb.org/t/p/w342${item.poster_path}` }}
-        style={styles.cardPoster}
+        style={styles.posterImage}
         contentFit="cover"
         transition={200}
         placeholder={BLURHASH}
       />
-      <View style={styles.cardInfo}>
+      <View style={styles.textContainer}>
+        <Text style={styles.cardTitle} numberOfLines={1}>{item.title}</Text>
+        <Text style={styles.cardYear}>{item.year || ''}</Text>
+      </View>
+    </TouchableOpacity>
+  );
+
+  // 2. Yatay Kart
+  const renderHorizontalCard = ({ item }: { item: Movie }) => (
+    <TouchableOpacity style={styles.horizontalCard} onPress={() => openMovie(item)}>
+      <Image
+        source={{ uri: `https://image.tmdb.org/t/p/w342${item.poster_path}` }}
+        style={styles.horizontalPosterImage}
+        contentFit="cover"
+        transition={200}
+        placeholder={BLURHASH}
+      />
+      <View style={styles.textContainer}>
         <Text style={styles.cardTitle} numberOfLines={1}>{item.title}</Text>
       </View>
     </TouchableOpacity>
   );
 
-  const renderTrendingCard = ({ item }: { item: Movie }) => (
-    <TouchableOpacity style={styles.trendingCard} onPress={() => openMovie(item)}>
-      <Image
-        source={{ uri: `https://image.tmdb.org/t/p/w342${item.poster_path}` }}
-        style={styles.trendingPoster}
-        contentFit="cover"
-        transition={200}
-        placeholder={BLURHASH}
-      />
-      <Text style={styles.trendingTitle} numberOfLines={1}>{item.title}</Text>
-    </TouchableOpacity>
-  );
+  const isSearching = query.trim().length >= 1;
 
-  // SEARCH MODE
-  if (query.trim().length >= 1) {
-    return (
-      <SafeAreaView style={styles.container}>
-        <StatusBar style="light" />
-        <View style={styles.searchHeader}>
-          <View style={styles.searchInputContainer}>
-            <TextInput
-              value={query}
-              onChangeText={handleSearchChange}
-              placeholder="search..."
-              placeholderTextColor="rgba(240, 228, 193, 0.5)"
-              style={styles.searchInput}
-              autoFocus
-            />
-            <TouchableOpacity onPress={() => { setQuery(''); setSearchResults([]); }} style={styles.clearButton}>
-              <CrossIcon />
-            </TouchableOpacity>
-          </View>
-        </View>
-        {searchLoading ? (
-          <ActivityIndicator size="large" color="#F0E4C1" style={{ marginTop: 20 }} />
-        ) : (
-          <FlatList
-            data={searchResults}
-            keyExtractor={(i) => `search-${i.id}`}
-            renderItem={renderCard}
-            numColumns={3}
-            columnWrapperStyle={styles.row}
-            contentContainerStyle={styles.listContent}
-          />
-        )}
-      </SafeAreaView>
-    );
-  }
-
-  // DISCOVER MODE
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar style="light" />
-      <FlatList
-        data={popularMovies}
-        keyExtractor={(i) => `pop-${i.id}`}
-        numColumns={3}
-        renderItem={renderCard}
-        columnWrapperStyle={styles.row}
-        contentContainerStyle={styles.listContent}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#F0E4C1" />}
-        ListHeaderComponent={
-          <View>
-            <View style={styles.header}>
-              <Text style={styles.heading}>discover movies</Text>
-              <Text style={styles.subheading}>find your next favorite film</Text>
-            </View>
 
-            <View style={styles.searchContainer}>
-              <TextInput
-                value={query}
-                onChangeText={handleSearchChange}
-                placeholder="search for movies..."
-                placeholderTextColor="rgba(240, 228, 193, 0.5)"
-                style={styles.discoverSearchInput}
-              />
-              <View style={styles.searchIconContainer}>
-                <Magnifier color="rgba(240,228,193,0.7)" />
+      {/* HEADER (Sabit) */}
+      <View style={styles.searchHeader}>
+        <View style={styles.searchInputContainer}>
+          <TextInput
+            value={query}
+            onChangeText={handleSearchChange}
+            placeholder="search..."
+            placeholderTextColor="rgba(240, 228, 193, 0.5)"
+            style={styles.searchInput}
+            autoCorrect={false}
+          />
+          {isSearching ? (
+            <TouchableOpacity onPress={clearSearch} style={styles.clearButton}>
+              <CrossIcon />
+            </TouchableOpacity>
+          ) : (
+             <View style={styles.searchIcon}>
+               <Magnifier color="rgba(240,228,193,0.4)" />
+             </View>
+          )}
+        </View>
+      </View>
+
+      {/* İÇERİK */}
+      {isSearching ? (
+        // ARAMA SONUÇLARI
+        searchLoading ? (
+           <ActivityIndicator size="large" color="#F0E4C1" style={{ marginTop: 40 }} />
+        ) : (
+          <FlatList
+            key="search-results-3-col" // KEY EKLENDİ: Render'ı zorlar
+            data={searchResults}
+            keyExtractor={(i) => `search-${i.id}`}
+            renderItem={renderGridCard}
+            numColumns={3} // 3 SÜTUN
+            columnWrapperStyle={styles.row}
+            contentContainerStyle={styles.listContent}
+            keyboardShouldPersistTaps="handled"
+          />
+        )
+      ) : (
+        // KEŞFET EKRANI
+        <FlatList
+          key="discover-3-col" // KEY EKLENDİ: Render'ı zorlar
+          data={popularMovies}
+          keyExtractor={(i) => `pop-${i.id}`}
+          numColumns={3} // 3 SÜTUN
+          renderItem={renderGridCard}
+          columnWrapperStyle={styles.row}
+          contentContainerStyle={styles.listContent}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#F0E4C1" />}
+          keyboardShouldPersistTaps="handled"
+          ListHeaderComponent={
+            <View>
+              <View style={styles.headerTitleContainer}>
+                <Text style={styles.heading}>discover movies</Text>
+                <Text style={styles.subheading}>find your next favorite film</Text>
               </View>
-            </View>
 
-            <View style={styles.trendingSection}>
-              <Text style={styles.sectionTitle}>trending this week</Text>
-              <FlatList
-                data={trendingMovies}
-                horizontal
-                keyExtractor={(i) => `trend-${i.id}`}
-                renderItem={renderTrendingCard}
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={{ paddingLeft: 20 }}
-              />
+              {/* 1. SİNEMADA ŞİMDİ */}
+              <View style={styles.sectionContainer}>
+                <Text style={styles.sectionTitle}>in theaters now</Text>
+                <FlatList
+                  data={nowPlayingMovies}
+                  horizontal
+                  keyExtractor={(i) => `now-${i.id}`}
+                  renderItem={renderHorizontalCard}
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={{ paddingLeft: PADDING }}
+                  ItemSeparatorComponent={() => <View style={{ width: GAP }} />}
+                />
+              </View>
+
+              {/* 2. TRENDLER */}
+              <View style={styles.sectionContainer}>
+                <Text style={styles.sectionTitle}>trending this week</Text>
+                <FlatList
+                  data={trendingMovies}
+                  horizontal
+                  keyExtractor={(i) => `trend-${i.id}`}
+                  renderItem={renderHorizontalCard}
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={{ paddingLeft: PADDING }}
+                  ItemSeparatorComponent={() => <View style={{ width: GAP }} />}
+                />
+              </View>
+
+              {/* 3. KLASİKLER */}
+              <Text style={[styles.sectionTitle, { marginTop: 8 }]}>classics & top rated</Text>
+              <Text style={styles.shuffleHint}>pull down to shuffle movies</Text>
             </View>
-            <Text style={[styles.sectionTitle, { marginTop: 24 }]}>all-time popular movies</Text>
-          </View>
-        }
-      />
+          }
+        />
+      )}
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#111C2A' },
-  header: { padding: 20 },
-  heading: { color: '#F0E4C1', fontSize: 28, fontWeight: '700' },
-  subheading: { color: 'rgba(240, 228, 193, 0.6)', fontSize: 16, marginTop: 4 },
-  searchContainer: { paddingHorizontal: 20, marginBottom: 24 },
-  discoverSearchInput: { backgroundColor: 'rgba(240,228,193,0.08)', borderRadius: 12, padding: 14, color: '#F0E4C1', fontSize: 16, borderWidth: 1, borderColor: 'rgba(240,228,193,0.1)' },
-  searchIconContainer: { position: 'absolute', right: 34, top: 14 },
-  trendingSection: { marginBottom: 8 },
-  sectionTitle: { color: '#F0E4C1', fontSize: 18, fontWeight: '600', paddingHorizontal: 20, marginBottom: 12 },
-  trendingCard: { width: 120, marginRight: 12 },
-  trendingPoster: { width: 120, height: 180, borderRadius: 12, backgroundColor: '#1a2634' },
-  trendingTitle: { color: '#F0E4C1', fontSize: 12, marginTop: 6, textAlign: 'center' },
   
-  // Grid Styles
-  row: { justifyContent: 'flex-start', paddingHorizontal: 16, gap: 8 }, // Gap ile boşlukları ayarlıyoruz
-  card: { width: CARD_W, marginBottom: 16 },
-  cardPoster: { width: '100%', height: CARD_W * 1.5, borderRadius: 8, backgroundColor: '#1a2634' },
-  cardInfo: { marginTop: 4 },
-  cardTitle: { color: '#F0E4C1', fontSize: 11, textAlign: 'center' },
-  listContent: { paddingBottom: 40 },
-  
-  // Search Mode Styles
-  searchHeader: { padding: 16 },
-  searchInputContainer: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(240,228,193,0.08)', borderRadius: 12, paddingHorizontal: 12 },
+  searchHeader: { paddingHorizontal: PADDING, paddingBottom: 12, paddingTop: 8 },
+  searchInputContainer: { 
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    backgroundColor: 'rgba(240,228,193,0.08)', 
+    borderRadius: 12, 
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(240,228,193,0.1)'
+  },
   searchInput: { flex: 1, paddingVertical: 12, color: '#F0E4C1', fontSize: 16 },
   clearButton: { padding: 8 },
+  searchIcon: { padding: 8 },
+
+  headerTitleContainer: { paddingHorizontal: PADDING, marginBottom: 20, marginTop: 10 },
+  heading: { color: '#F0E4C1', fontSize: 28, fontWeight: '700' },
+  subheading: { color: 'rgba(240, 228, 193, 0.6)', fontSize: 16, marginTop: 4 },
+  
+  sectionContainer: { marginBottom: 24 },
+  sectionTitle: { color: '#F0E4C1', fontSize: 13, fontWeight: '700', paddingHorizontal: PADDING, marginBottom: 12, textTransform: 'lowercase' },
+  
+  // YATAY KART
+  horizontalCard: { width: HORIZONTAL_CARD_W },
+  horizontalPosterImage: { 
+    width: '100%', 
+    height: HORIZONTAL_CARD_W * 1.5, 
+    borderRadius: 6, 
+    backgroundColor: '#1a2634' 
+  },
+  
+  // DİKEY GRID KARTI (3 Sütun)
+  gridCard: { width: GRID_CARD_W, marginBottom: 16 }, 
+  posterImage: { 
+    width: '100%', 
+    height: GRID_CARD_W * 1.5, 
+    borderRadius: 6, 
+    backgroundColor: '#1a2634' 
+  },
+  
+  textContainer: { marginTop: 6, alignItems: 'center', paddingHorizontal: 2 },
+  cardTitle: { 
+    color: '#F0E4C1', 
+    fontSize: 11, 
+    fontWeight: '500', 
+    textAlign: 'center',
+    opacity: 0.9,
+    textTransform: 'lowercase',
+    lineHeight: 14
+  },
+  cardYear: {
+    color: 'rgba(240, 228, 193, 0.5)',
+    fontSize: 10,
+    marginTop: 2,
+    textAlign: 'center'
+  },
+
+  row: { justifyContent: 'flex-start', paddingHorizontal: PADDING, gap: GAP }, 
+  listContent: { paddingBottom: 40 },
+  shuffleHint: { paddingHorizontal: PADDING, color: 'rgba(240, 228, 193, 0.4)', fontSize: 12, marginBottom: 10, textTransform: 'lowercase' },
 });

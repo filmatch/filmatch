@@ -51,7 +51,7 @@ export type Movie = {
   year?: number;
   poster_path: string | null;
   backdrop_path: string | null;
-  genres: string[];
+  genres: string[]; // ["Action", "Drama"] gibi string dizisi
   director?: string;
   rating?: number;
   overview: string;
@@ -59,4 +59,10 @@ export type Movie = {
   cast?: string[];
   release_date?: string;
   vote_average?: number;
+};
+
+// ✅ EKLENEN KISIM: Film detay ekranında kullanıcının puanını tutmak için
+export type MovieWithUserData = Movie & {
+  userRating?: number;
+  userStatus?: string; // 'watched' | 'watchlist' vs.
 };

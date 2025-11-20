@@ -80,7 +80,18 @@ export class TMDbService {
       return data;
     } catch (error) { return null; }
   }
-
+// TMDbService class'ının içine ekle:
+  static async getNowPlayingMovies(page: number = 1): Promise<Movie[]> {
+    try {
+      if (this.genreCache.size === 0) await this.getGenres();
+      // 'now_playing' sinemadaki filmleri getirir
+      const data = await this.fetchFromTMDb('/movie/now_playing', { 
+        page: page.toString(), 
+        region: 'TR' // Türkiye vizyon tarihlerini baz alır (Önemli!)
+      });
+      return data.results.map((m: any) => this.convertTMDbToMovie(m));
+    } catch (e) { return []; }
+  }
   static getPosterUrl(posterPath: string | null, size: 'w154' | 'w342' | 'w500' | 'w780' | 'original' = 'w342'): string | null {
     if (!posterPath) return null;
     return `${TMDB_IMAGE_BASE_URL}/${size}${posterPath}`;

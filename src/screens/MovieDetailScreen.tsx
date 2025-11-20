@@ -19,7 +19,7 @@ import { getAuth } from 'firebase/auth';
 import { doc, setDoc, getDoc, updateDoc } from 'firebase/firestore';
 import { db } from '../../config/firebase';
 import { TMDbService } from '../services/TMDbService';
-import { Movie, MovieWithUserData } from '../types';
+import { MovieWithUserData } from '../types';
 
 const { width } = Dimensions.get('window');
 
@@ -46,7 +46,6 @@ export default function MovieDetailScreen() {
   const [hasChanges, setHasChanges] = useState(false);
   const [loadingDetails, setLoadingDetails] = useState(true);
   
-  // Track original state from database
   const [originalRating, setOriginalRating] = useState<number>(0);
   const [originalStatus, setOriginalStatus] = useState<string | null>(null);
   const [existsInDatabase, setExistsInDatabase] = useState(false);
@@ -56,7 +55,6 @@ export default function MovieDetailScreen() {
     loadUserData();
   }, []);
 
-  // ---- helpers ----
   const safeVoteAverage = (m: any): number =>
     typeof m?.vote_average === 'number' ? m.vote_average : 0;
 
@@ -67,14 +65,20 @@ export default function MovieDetailScreen() {
     return `${hours}h ${mins}m`;
   };
 
-  // ---- data loaders ----
   const loadMovieDetails = async () => {
     try {
       const movieId = Number(movie.tmdb_id || movie.id);
       const details = await TMDbService.getMovieDetails(movieId);
+      
       if (details) {
+        // Genre düzeltmesi
+        const genres = details.genres
+          ? details.genres.map((g: any) => (typeof g === 'object' ? g.name : g))
+          : [];
+
         const merged: MovieWithUserData = {
-          ...(details as Movie),
+          ...(details as any),
+          genres: genres,
           userRating: movie.userRating || undefined,
           userStatus: movie.userStatus || undefined,
         };
@@ -92,8 +96,6 @@ export default function MovieDetailScreen() {
     if (!currentUser) return;
     try {
       const movieId = (movie.id ?? movie.tmdb_id).toString();
-      
-      // Check if movie exists in user's subcollection
       const userMovieRef = doc(db, 'users', currentUser.uid, 'movies', movieId);
       const userMovieDoc = await getDoc(userMovieRef);
       
@@ -102,34 +104,26 @@ export default function MovieDetailScreen() {
         const dbRating = userData.rating || 0;
         const dbStatus = userData.status || null;
         
-        // Store original database values
         setOriginalRating(dbRating);
         setOriginalStatus(dbStatus);
         setExistsInDatabase(true);
         
-        // Set current state
         setMovie((prev) => ({
           ...prev,
           userRating: dbRating || undefined,
           userStatus: dbStatus || undefined,
         }));
         setTempRating(dbRating);
-        
-        console.log('Movie already in user profile:', userData);
       } else {
-        // Movie doesn't exist in database
         setOriginalRating(0);
         setOriginalStatus(null);
         setExistsInDatabase(false);
-        console.log('Movie not yet in user profile');
       }
     } catch (error) {
       console.error('Error loading user movie data:', error);
-      // Don't show error to user - this is expected for new movies
     }
   };
 
-  // ---- interactions ----
   const handleRatingChange = (rating: number) => {
     const newRating = tempRating === rating ? 0 : rating;
     setTempRating(newRating);
@@ -146,7 +140,10 @@ export default function MovieDetailScreen() {
       const finalStatus = tempRating > 0 ? 'watched' : null;
       const movieId = (movie.id ?? movie.tmdb_id).toString();
 
-      // 1. Save to individual movie document
+      // --- HATA DÜZELTME: UNDEFINED KONTROLÜ ---
+      // Firestore undefined kabul etmez, null gönderiyoruz.
+      const safeYear = movie.year || (movie.release_date ? new Date(movie.release_date).getFullYear() : null);
+
       const userMovieRef = doc(db, 'users', currentUser.uid, 'movies', movieId);
       await setDoc(
         userMovieRef,
@@ -154,17 +151,17 @@ export default function MovieDetailScreen() {
           movieId: movie.id ?? movie.tmdb_id,
           tmdbId: movie.tmdb_id || movie.id,
           title: movie.title,
-          year: movie.year,
+          year: safeYear, // Düzeltildi
           rating: tempRating || null,
           status: finalStatus,
-          posterPath: movie.poster_path,
+          posterPath: movie.poster_path || null,
           genres: movie.genres ?? [],
           updatedAt: new Date(),
         },
         { merge: true }
       );
 
-      // 2. Update main user document arrays
+      // Kullanıcı ana profili güncelleme
       const userRef = doc(db, 'users', currentUser.uid);
       const userDoc = await getDoc(userRef);
       
@@ -176,17 +173,16 @@ export default function MovieDetailScreen() {
         const movieData = {
           id: movieId,
           title: movie.title,
-          year: movie.year || (movie.release_date ? new Date(movie.release_date).getFullYear() : 0),
+          year: safeYear, // Düzeltildi
           poster: movie.poster_path ? `https://image.tmdb.org/t/p/w500${movie.poster_path}` : undefined,
         };
 
-        // Handle favorites (movies with rating 4-5 stars)
+        // Favorites mantığı
         const existingFavIndex = favorites.findIndex((f: any) => f.id === movieId);
         if (tempRating >= 4) {
           if (existingFavIndex === -1) {
             favorites = [...favorites, movieData];
           } else {
-            // Update existing favorite
             favorites[existingFavIndex] = movieData;
           }
         } else {
@@ -195,20 +191,15 @@ export default function MovieDetailScreen() {
           }
         }
 
-        // Handle recent watches (any movie with rating > 0 or marked as watched)
+        // Recent watches mantığı
         const existingWatchIndex = recentWatches.findIndex((w: any) => w.id === movieId);
         if (finalStatus === 'watched' || tempRating > 0) {
-          const watchData = {
-            ...movieData,
-            rating: tempRating || 0,
-          };
-          
+          const watchData = { ...movieData, rating: tempRating || 0 };
           if (existingWatchIndex !== -1) {
             recentWatches[existingWatchIndex] = watchData;
           } else {
             recentWatches = [...recentWatches, watchData];
           }
-          
           recentWatches = recentWatches.slice(-20);
         } else {
           if (existingWatchIndex !== -1) {
@@ -216,25 +207,12 @@ export default function MovieDetailScreen() {
           }
         }
 
-        // Update counters - FIXED LOGIC
         let watchedCount = userData.watchedMovies || 0;
-        
-        // Determine if we're transitioning to/from watched status
         const wasWatched = originalStatus === 'watched' || originalRating > 0;
         const isNowWatched = finalStatus === 'watched' || tempRating > 0;
         
-        if (isNowWatched && !wasWatched) {
-          // NEW watch: wasn't watched before, is watched now
-          watchedCount += 1;
-          console.log('Incrementing watch count: new movie watched');
-        } else if (!isNowWatched && wasWatched) {
-          // REMOVED watch: was watched before, not watched now
-          watchedCount -= 1;
-          console.log('Decrementing watch count: movie unwatched');
-        } else {
-          // No change in watched status (either updating rating or re-rating)
-          console.log('No change to watch count: updating existing watched movie');
-        }
+        if (isNowWatched && !wasWatched) watchedCount += 1;
+        else if (!isNowWatched && wasWatched) watchedCount -= 1;
 
         await updateDoc(userRef, {
           favorites,
@@ -244,7 +222,6 @@ export default function MovieDetailScreen() {
         });
       }
 
-      // Update local state to reflect saved values
       setMovie((p) => ({ 
         ...p, 
         userRating: tempRating || undefined, 
@@ -257,9 +234,7 @@ export default function MovieDetailScreen() {
       
       Alert.alert('saved', 'your changes are saved', [{ text: 'ok', onPress: () => navigation.goBack() }]);
     } catch (e: any) {
-      console.error('Error saving movie data:', e);
-      console.error('Error code:', e?.code);
-      console.error('Error message:', e?.message);
+      console.error(e);
       Alert.alert('error', `failed to save: ${e?.message || 'unknown error'}`);
     } finally {
       setIsLoading(false);
@@ -277,7 +252,6 @@ export default function MovieDetailScreen() {
     }
   };
 
-  // ---- render ----
   const displayMovie = detailedMovie || movie;
   const voteAvg = safeVoteAverage(displayMovie);
 
@@ -287,7 +261,7 @@ export default function MovieDetailScreen() {
 
       <View style={styles.header}>
         <TouchableOpacity onPress={handleClose} style={styles.closeButton}>
-          <Text style={styles.closeButtonText}>×</Text>
+          <Text style={styles.closeButtonText}>close</Text>
         </TouchableOpacity>
         {hasChanges && (
           <TouchableOpacity onPress={handleSave} style={[styles.saveButton, isLoading && styles.saveButtonDisabled]} disabled={isLoading}>
@@ -307,7 +281,7 @@ export default function MovieDetailScreen() {
               />
             ) : (
               <View style={styles.posterPlaceholder}>
-                <Text style={styles.posterPlaceholderText}>🎬</Text>
+                <Text style={styles.posterPlaceholderText}>no image</Text>
               </View>
             )}
             {loadingDetails && (
@@ -320,22 +294,29 @@ export default function MovieDetailScreen() {
           <View style={styles.basicInfo}>
             <Text style={styles.title}>{displayMovie?.title ?? ''}</Text>
             <Text style={styles.metadata}>
-              {displayMovie?.year ?? ''} • {formatRuntime(displayMovie?.runtime)} • ⭐ {voteAvg.toFixed(1)}
+              {displayMovie?.year ?? ''} • {formatRuntime(displayMovie?.runtime)} • {voteAvg.toFixed(1)} rating
             </Text>
             {displayMovie?.director ? <Text style={styles.director}>directed by {displayMovie.director}</Text> : null}
+            
             <View style={styles.genreContainer}>
-              {(displayMovie?.genres ?? []).map((g, idx) => (
-                <View key={`${g}-${idx}`} style={styles.genreChip}>
-                  <Text style={styles.genreText}>{g}</Text>
-                </View>
-              ))}
+              {(displayMovie?.genres ?? []).map((g, idx) => {
+                if (!g) return null;
+                const genreName = typeof g === 'string' ? g : (g as any).name;
+                if (!genreName) return null;
+
+                return (
+                  <View key={`${genreName}-${idx}`} style={styles.genreChip}>
+                    <Text style={styles.genreText}>{genreName}</Text>
+                  </View>
+                );
+              })}
             </View>
           </View>
         </View>
 
         {existsInDatabase && (
           <View style={styles.alreadyAddedBanner}>
-            <Text style={styles.alreadyAddedText}>✓ already in your profile</Text>
+            <Text style={styles.alreadyAddedText}>already in your profile</Text>
           </View>
         )}
 
@@ -384,25 +365,25 @@ export default function MovieDetailScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#111C2A' },
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingTop: 10, paddingBottom: 15 },
-  closeButton: { width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(240, 228, 193, 0.1)', justifyContent: 'center', alignItems: 'center' },
-  closeButtonText: { color: '#F0E4C1', fontSize: 24, fontWeight: '300' },
+  closeButton: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20, backgroundColor: 'rgba(240, 228, 193, 0.1)', justifyContent: 'center', alignItems: 'center' },
+  closeButtonText: { color: '#F0E4C1', fontSize: 14, fontWeight: '500', textTransform: 'lowercase' },
   saveButton: { backgroundColor: '#511619', paddingHorizontal: 16, paddingVertical: 8, borderRadius: 16 },
   saveButtonDisabled: { opacity: 0.7 },
-  saveButtonText: { color: '#F0E4C1', fontSize: 14, fontWeight: '600' },
+  saveButtonText: { color: '#F0E4C1', fontSize: 14, fontWeight: '600', textTransform: 'lowercase' },
   content: { flex: 1 },
   posterSection: { paddingHorizontal: 20, paddingBottom: 30, alignItems: 'center' },
   posterContainer: { marginBottom: 20, position: 'relative' },
   posterImage: { width: width * 0.6, height: width * 0.9, borderRadius: 16 },
   posterPlaceholder: { width: width * 0.6, height: width * 0.9, backgroundColor: 'rgba(240, 228, 193, 0.1)', borderRadius: 16, justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: 'rgba(240, 228, 193, 0.2)' },
-  posterPlaceholderText: { fontSize: 48 },
+  posterPlaceholderText: { fontSize: 14, color: '#F0E4C1', opacity: 0.5 },
   posterOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.3)', borderRadius: 16, justifyContent: 'center', alignItems: 'center' },
   basicInfo: { alignItems: 'center' },
   title: { fontSize: 24, fontWeight: 'bold', color: '#F0E4C1', textAlign: 'center', marginBottom: 8 },
-  metadata: { fontSize: 16, color: '#F0E4C1', opacity: 0.7, marginBottom: 4 },
+  metadata: { fontSize: 14, color: '#F0E4C1', opacity: 0.7, marginBottom: 4 },
   director: { fontSize: 14, color: '#F0E4C1', opacity: 0.8, marginBottom: 16 },
   genreContainer: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 8 },
   genreChip: { backgroundColor: 'rgba(81, 22, 25, 0.2)', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16, borderWidth: 1, borderColor: 'rgba(81, 22, 25, 0.3)' },
-  genreText: { color: '#511619', fontSize: 12, fontWeight: '600' },
+  genreText: { color: '#511619', fontSize: 12, fontWeight: '600', textTransform: 'lowercase' },
   alreadyAddedBanner: {
     marginHorizontal: 20,
     marginBottom: 20,
@@ -414,12 +395,7 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(81, 22, 25, 0.3)',
     alignItems: 'center',
   },
-  alreadyAddedText: {
-    color: '#F0E4C1',
-    fontSize: 14,
-    fontWeight: '600',
-    textTransform: 'lowercase',
-  },
+  alreadyAddedText: { color: '#F0E4C1', fontSize: 14, fontWeight: '600', textTransform: 'lowercase' },
   ratingSection: { paddingHorizontal: 20, paddingBottom: 30, alignItems: 'center', borderTopWidth: 1, borderTopColor: 'rgba(240, 228, 193, 0.1)', paddingTop: 30 },
   sectionTitle: { fontSize: 18, fontWeight: 'bold', color: '#F0E4C1', marginBottom: 20, textTransform: 'lowercase' },
   starsContainer: { flexDirection: 'row', marginBottom: 12 },
@@ -432,5 +408,5 @@ const styles = StyleSheet.create({
   castSection: { paddingHorizontal: 20, paddingBottom: 30 },
   castContainer: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
   castMember: { backgroundColor: 'rgba(240, 228, 193, 0.1)', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 12, borderWidth: 1, borderColor: 'rgba(240, 228, 193, 0.2)' },
-  castName: { color: '#F0E4C1', fontSize: 14, opacity: 0.9 },
+  castName: { color: '#F0E4C1', fontSize: 14, opacity: 0.9, textTransform: 'lowercase' },
 });
