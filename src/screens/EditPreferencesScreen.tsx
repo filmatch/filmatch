@@ -16,7 +16,7 @@ import {
   Dimensions,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
-import { useNavigation } from '@react-navigation/native'; // Keep the import for potential internal use, but we won't use the instance
+import { useNavigation } from '@react-navigation/native';
 import { FirebaseAuthService } from '../services/FirebaseAuthService';
 import { FirestoreService } from '../services/FirestoreService';
 import TMDbService, { Movie } from '../services/TMDbService';
@@ -36,8 +36,8 @@ type EditPreferencesScreenProps = {
 
 // Update the component signature to accept the new props
 export default function EditPreferencesScreen({ onComplete, onBack }: EditPreferencesScreenProps) {
-  // We keep the useNavigation import for reference, but the hook instance is no longer needed
-  // const navigation = useNavigation(); 
+  // 1. RE-ENABLED NAVIGATION HERE
+  const navigation = useNavigation(); 
   const starFontFamily = Platform.select({ ios: 'System', android: 'sans-serif' });
 
   const steps: StepKey[] = ['favorites', 'recent', 'genres'];
@@ -184,28 +184,20 @@ export default function EditPreferencesScreen({ onComplete, onBack }: EditPrefer
 
   // Updated saveChanges to use onComplete prop
  const saveChanges = async () => {
-    if (!canContinueFavorites) {
-      return Alert.alert('incomplete', `you need to add ${4 - favorites.length} more favorite(s)`);
+    if (favorites.length !== 4) {
+      return Alert.alert('incomplete', `please select exactly 4 favorite movies (you have ${favorites.length})`);
     }
-    if (!canContinueRecents) {
-      return Alert.alert('incomplete', `you need to add ${4 - recentWatches.length} more recent watch(es)`);
+    if (recentWatches.length < 4) {
+      return Alert.alert('incomplete', `please add at least 4 recent watches`);
     }
     if (!canContinueGenres) {
-      return Alert.alert('incomplete', 'please rate all required genres (action, romance, comedy, horror) before saving');
+      return Alert.alert('incomplete', 'please rate all required genres');
     }
 
     try {
       setSaving(true);
       const currentUser = FirebaseAuthService.getCurrentUser();
-      if (!currentUser) {
-        Alert.alert('error', 'not authenticated');
-        return;
-      }
-
-      console.log('=== SAVING DATA ===');
-      console.log('Favorites to save:', favorites);
-      console.log('Recent watches to save:', recentWatches);
-      console.log('Genre ratings to save:', genreRatings);
+      if (!currentUser) return;
 
       await FirestoreService.saveUserProfile(currentUser.uid, {
         favorites,
@@ -214,28 +206,20 @@ export default function EditPreferencesScreen({ onComplete, onBack }: EditPrefer
         hasPreferences: true,
       });
 
-      await new Promise(resolve => setTimeout(resolve, 1500));
-
-      const verification = await FirestoreService.getUserProfile(currentUser.uid);
-      
-      console.log('=== VERIFICATION ===');
-      console.log('Genre ratings after save:', verification?.genreRatings?.length);
-
-      if (!verification?.hasPreferences) {
-        throw new Error('Verification failed: hasPreferences not set');
-      }
-
-      Alert.alert('saved', 'your preferences have been updated!', [
-        { text: 'ok', onPress: onComplete }, // <-- Use onComplete prop here
+      Alert.alert('success', 'preferences saved!', [
+        { 
+          text: 'ok', 
+          onPress: () => {
+            onComplete();
+            // 2. FORCE NAVIGATION BACK HERE
+            if (navigation.canGoBack()) {
+              navigation.goBack();
+            }
+          } 
+        }
       ]);
     } catch (error) {
-      console.error('error saving preferences:', error);
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      if (errorMessage.includes('PERMISSION_DENIED') || errorMessage.includes('permission')) {
-        Alert.alert('permission error', 'You do not have permission to save. Check your Firebase Firestore security rules.');
-      } else {
-        Alert.alert('error', `Failed to save preferences: ${errorMessage}`);
-      }
+      Alert.alert('error', 'failed to save preferences');
     } finally {
       setSaving(false);
     }
@@ -269,7 +253,7 @@ export default function EditPreferencesScreen({ onComplete, onBack }: EditPrefer
     favorites, 
     recentWatches, 
     genreRatings,
-    onComplete, // ADDED: onComplete dependency for saveChanges
+    onComplete, 
     saveChanges
   ]);
 
@@ -283,10 +267,10 @@ export default function EditPreferencesScreen({ onComplete, onBack }: EditPrefer
       if (isNewUser) {
         Alert.alert('preferences required', 'you need to complete your preferences before using the app');
       } else {
-        onBack(); // <-- Use onBack prop here
+        onBack(); 
       }
     }
-  }, [stepIndex, onBack, isNewUser]); // ADDED: onBack dependency
+  }, [stepIndex, onBack, isNewUser]); 
 
   const addFavorite = (movie: Movie) => {
     if (favorites.length >= 4) {
@@ -447,7 +431,6 @@ export default function EditPreferencesScreen({ onComplete, onBack }: EditPrefer
                   <Text style={s.currentItemTitle}>{m.title}</Text>
                   <Text style={s.currentItemYear}>({m.year ?? '—'})</Text>
                 </View>
-                {/* FIX 1: Correctly call removeFavorite with m.id (not movie.id) and cast m.id to string */}
                <TouchableOpacity onPress={() => removeFavorite(String(m.id))}>
                    <Text style={s.removeButton}>×</Text>
                </TouchableOpacity>
@@ -512,7 +495,6 @@ export default function EditPreferencesScreen({ onComplete, onBack }: EditPrefer
                       <Text style={s.currentItemTitle}>{movie.title}</Text>
                       <Text style={s.currentItemYear}>({movie.year ?? '—'})</Text>
                     </View>
-                    {/* FIX 2: Cast movie.id to string for removeRecentWatch */}
                     <TouchableOpacity onPress={() => removeRecentWatch(String(movie.id))}>
                       <Text style={s.removeButton}>×</Text>
                     </TouchableOpacity>
@@ -521,7 +503,6 @@ export default function EditPreferencesScreen({ onComplete, onBack }: EditPrefer
                     {[1, 2, 3, 4, 5].map((star) => (
                       <TouchableOpacity 
                         key={star} 
-                        // FIX 3: Cast movie.id to string for updateRecentRating
                         onPress={() => updateRecentRating(String(movie.id), star)} 
                         style={s.starButton}>
                         <Text

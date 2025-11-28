@@ -55,7 +55,7 @@ export class TMDbService {
   private static genreCache: Map<number, string> = new Map();
 
   private static async fetchFromTMDb(endpoint: string, params: Record<string, string> = {}): Promise<any> {
-    if (!this.API_KEY) throw new Error('TMDb API key eksik');
+    if (!this.API_KEY) throw new Error('TMDb API key missing');
 
     const url = new URL(`${TMDB_BASE_URL}${endpoint}`);
     url.searchParams.set('api_key', this.API_KEY);
@@ -74,41 +74,33 @@ export class TMDbService {
     }
   }
 
-  static async getMovieDetails(movieId: number): Promise<TMDbMovieDetails | null> {
-    try {
-      const data = await this.fetchFromTMDb(`/movie/${movieId}`, { append_to_response: 'credits' });
-      return data;
-    } catch (error) { return null; }
-  }
-// TMDbService class'ının içine ekle:
-  static async getNowPlayingMovies(page: number = 1): Promise<Movie[]> {
-    try {
-      if (this.genreCache.size === 0) await this.getGenres();
-      // 'now_playing' sinemadaki filmleri getirir
-      const data = await this.fetchFromTMDb('/movie/now_playing', { 
-        page: page.toString(), 
-        region: 'TR' // Türkiye vizyon tarihlerini baz alır (Önemli!)
-      });
-      return data.results.map((m: any) => this.convertTMDbToMovie(m));
-    } catch (e) { return []; }
-  }
-  static getPosterUrl(posterPath: string | null, size: 'w154' | 'w342' | 'w500' | 'w780' | 'original' = 'w342'): string | null {
-    if (!posterPath) return null;
-    return `${TMDB_IMAGE_BASE_URL}/${size}${posterPath}`;
-  }
-
+  // --- GENRES ---
   static async getGenres(): Promise<any[]> {
     try {
+      if (this.genreCache.size > 0) return [];
       const data = await this.fetchFromTMDb('/genre/movie/list');
       data.genres.forEach((g: any) => this.genreCache.set(g.id, g.name));
       return data.genres;
     } catch (e) { return []; }
   }
 
+  // --- SEARCH ---
   static async searchMovies(query: string): Promise<Movie[]> {
     try {
       if (this.genreCache.size === 0) await this.getGenres();
       const data = await this.fetchFromTMDb('/search/movie', { query: query.trim(), include_adult: 'false' });
+      return data.results.map((m: any) => this.convertTMDbToMovie(m));
+    } catch (e) { return []; }
+  }
+
+  // --- MOVIE LISTS (Restored) ---
+  static async getNowPlayingMovies(page: number = 1): Promise<Movie[]> {
+    try {
+      if (this.genreCache.size === 0) await this.getGenres();
+      const data = await this.fetchFromTMDb('/movie/now_playing', { 
+        page: page.toString(), 
+        region: 'TR' 
+      });
       return data.results.map((m: any) => this.convertTMDbToMovie(m));
     } catch (e) { return []; }
   }
@@ -121,7 +113,6 @@ export class TMDbService {
     } catch (e) { return []; }
   }
 
-  // ✅ İŞTE BU EKSİKTİ, GERİ GELDİ:
   static async getTopRatedMovies(page: number = 1): Promise<Movie[]> {
     try {
       if (this.genreCache.size === 0) await this.getGenres();
@@ -136,6 +127,67 @@ export class TMDbService {
       const data = await this.fetchFromTMDb(`/trending/movie/${timeWindow}`);
       return data.results.map((m: any) => this.convertTMDbToMovie(m));
     } catch (e) { return []; }
+  }
+
+  static async getMovieDetails(movieId: number): Promise<TMDbMovieDetails | null> {
+    try {
+      const data = await this.fetchFromTMDb(`/movie/${movieId}`, { append_to_response: 'credits' });
+      return data;
+    } catch (error) { return null; }
+  }
+
+  // --- HELPER METHODS ---
+  static getPosterUrl(posterPath: string | null, size: 'w154' | 'w342' | 'w500' | 'w780' | 'original' = 'w342'): string | null {
+    if (!posterPath) return null;
+    return `${TMDB_IMAGE_BASE_URL}/${size}${posterPath}`;
+  }
+
+  /**
+   * Finds a poster URL for a movie title/year.
+   * Useful for filling in gaps in user profiles.
+   */
+  static async findPoster(title: string, year?: number): Promise<string | null> {
+    try {
+      if (!title) return null;
+      const results = await this.searchMovies(title);
+      if (!results || results.length === 0) return null;
+
+      let match = results[0];
+      if (year) {
+        const exactMatch = results.find(m => m.year === year);
+        if (exactMatch) match = exactMatch;
+      }
+      return this.getPosterUrl(match.poster_path, 'w154');
+    } catch (error) {
+      return null;
+    }
+  }
+
+  /**
+   * Automatically fills in missing posters for a user profile
+   */
+  static async enrichProfile(profile: any): Promise<any> {
+    const enriched = { ...profile };
+    
+    // Enrich Favorites
+    if (enriched.favorites) {
+      enriched.favorites = await Promise.all(enriched.favorites.map(async (fav: any) => {
+        if (fav.poster) return fav; 
+        const foundUrl = await this.findPoster(fav.title, fav.year);
+        return { ...fav, poster: foundUrl };
+      }));
+    }
+
+    // Enrich Recents
+    if (enriched.recentWatches) {
+      enriched.recentWatches = await Promise.all(enriched.recentWatches.map(async (rec: any) => {
+        if (rec.poster) return rec;
+        const foundUrl = await this.findPoster(rec.title, rec.year);
+        return { ...rec, poster: foundUrl };
+      }));
+    }
+
+    return enriched;
   }
 
   static convertTMDbToMovie(tmdbMovie: any): Movie {

@@ -17,11 +17,12 @@ import {
 import { firebaseConfig } from '../../config/firebase';
 import { getFirestore, doc, setDoc, serverTimestamp } from 'firebase/firestore';
 
+// Ensure Firebase is initialized
 function ensureFirebaseApp() {
   if (!getApps().length) initializeApp(firebaseConfig);
 }
 
-// Singleton Auth
+// Singleton Auth Instance
 let authInstance: Auth | undefined;
 function auth(): Auth {
   ensureFirebaseApp();
@@ -29,74 +30,97 @@ function auth(): Auth {
   return authInstance!;
 }
 
+// Singleton Firestore Instance
 const db = getFirestore(getApp());
 
-// Build a safe verification URL from .env (no deep linking in-app)
-const AUTH_DOMAIN =
-  (process.env.EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN || '').replace(/^https?:\/\//, '').replace(/\/+$/, '');
 const actionCodeSettings = {
-  url: `https://${AUTH_DOMAIN}/verify-complete`,
-  handleCodeInApp: false,
+url: 'https://www.google.com',
+  handleCodeInApp: false, // Set to true only if you have configured Deep Linking
 };
 
 const Service = {
-  // Core
+  // --- CORE AUTH METHODS ---
   getAuth(): Auth {
     return auth();
   },
+
   getCurrentUser(): User | null {
     return auth().currentUser;
   },
+
   onAuthStateChanged(listener: (user: User | null) => void): Unsubscribe {
     return auth().onAuthStateChanged(listener);
   },
+
   onIdTokenChanged(listener: (user: User | null) => void): Unsubscribe {
-    // Works in both web & RN bundles
+    // Robust check for React Native vs Web environment
     const a = auth() as Auth & { onIdTokenChanged?: (l: (u: User | null) => void) => Unsubscribe };
     if (typeof a.onIdTokenChanged === 'function') return a.onIdTokenChanged(listener);
     return onIdTokenChangedWeb(auth(), listener);
   },
 
-  // Email/password helpers
+  // --- ACTIONS ---
+
   async signIn(email: string, password: string): Promise<User> {
     const { user } = await signInWithEmailAndPassword(auth(), email.trim(), password);
     return user;
   },
 
   async signUp(email: string, password: string, displayName?: string): Promise<void> {
+    // 1. Create the user in Authentication
     const { user } = await createUserWithEmailAndPassword(auth(), email.trim(), password);
-    if (displayName) try { await updateProfile(user, { displayName }); } catch {}
+    
+    // 2. Update the Display Name immediately
+    if (displayName) {
+      try { 
+        await updateProfile(user, { displayName }); 
+      } catch (e) {
+        console.warn('Failed to update display name', e);
+      }
+    }
 
-    // create minimal profile so ProfileScreen can read later
+    // 3. Create the minimal Profile in Firestore
+    // This ensures ProfileScreen doesn't crash on first load
     try {
       await setDoc(
         doc(db, 'users', user.uid),
         {
           uid: user.uid,
           email: user.email,
-          displayName: user.displayName ?? '',
+          displayName: user.displayName ?? displayName ?? '',
           hasCompletedOnboarding: false,
           favorites: [],
           recentWatches: [],
           watchedMovies: 0,
           watchlistMovies: 0,
           lastUpdated: serverTimestamp(),
+          // Add default fields to prevent "undefined" checks later
+          hasProfile: false,
+          hasPreferences: false,
+          genreRatings: [],
+          photos: [],
         },
         { merge: true }
       );
-    } catch {}
+    } catch (e) {
+      console.error('Error creating user profile doc:', e);
+    }
 
-    // send the verification email using explicit actionCodeSettings
-    try { await sendEmailVerification(user, actionCodeSettings as any); } catch {}
+    // 4. Send Verification Email with the FIXED settings
+    try { 
+      await sendEmailVerification(user, actionCodeSettings); 
+    } catch (e) {
+      console.error('Error sending verification email:', e);
+    }
 
-    // IMPORTANT: sign out so they cannot enter the app before verifying
+    // 5. Sign Out immediately so they cannot enter the app without verifying
     await fbSignOut(auth());
   },
 
   async resendVerification(user: User): Promise<void> {
     await reload(user);
     if (!user.emailVerified) {
-      await sendEmailVerification(user, actionCodeSettings as any);
+      await sendEmailVerification(user, actionCodeSettings);
     }
   },
 
@@ -110,6 +134,7 @@ const Service = {
   },
 
   async resetPassword(email: string): Promise<void> {
+    // We trim the email to avoid errors with trailing spaces
     await sendPasswordResetEmail(auth(), email.trim());
   },
 };

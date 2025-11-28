@@ -104,16 +104,17 @@ export default function MovieDetailScreen() {
         const dbRating = userData.rating || 0;
         const dbStatus = userData.status || null;
         
+        // FIX: Ensure state is set correctly so stars appear filled
         setOriginalRating(dbRating);
         setOriginalStatus(dbStatus);
         setExistsInDatabase(true);
+        setTempRating(dbRating); // Critical: Update tempRating to reflect saved state
         
         setMovie((prev) => ({
           ...prev,
           userRating: dbRating || undefined,
           userStatus: dbStatus || undefined,
         }));
-        setTempRating(dbRating);
       } else {
         setOriginalRating(0);
         setOriginalStatus(null);
@@ -140,7 +141,6 @@ export default function MovieDetailScreen() {
       const finalStatus = tempRating > 0 ? 'watched' : null;
       const movieId = (movie.id ?? movie.tmdb_id).toString();
 
-      // --- HATA DÜZELTME: UNDEFINED KONTROLÜ ---
       // Firestore undefined kabul etmez, null gönderiyoruz.
       const safeYear = movie.year || (movie.release_date ? new Date(movie.release_date).getFullYear() : null);
 
@@ -151,7 +151,7 @@ export default function MovieDetailScreen() {
           movieId: movie.id ?? movie.tmdb_id,
           tmdbId: movie.tmdb_id || movie.id,
           title: movie.title,
-          year: safeYear, // Düzeltildi
+          year: safeYear, 
           rating: tempRating || null,
           status: finalStatus,
           posterPath: movie.poster_path || null,
@@ -173,7 +173,7 @@ export default function MovieDetailScreen() {
         const movieData = {
           id: movieId,
           title: movie.title,
-          year: safeYear, // Düzeltildi
+          year: safeYear, 
           poster: movie.poster_path ? `https://image.tmdb.org/t/p/w500${movie.poster_path}` : undefined,
         };
 
@@ -186,6 +186,8 @@ export default function MovieDetailScreen() {
             favorites[existingFavIndex] = movieData;
           }
         } else {
+          // Note: If user lowers rating below 4, should we remove from favs? 
+          // Current logic: Yes, remove if < 4. 
           if (existingFavIndex !== -1) {
             favorites = favorites.filter((f: any) => f.id !== movieId);
           }
@@ -200,6 +202,7 @@ export default function MovieDetailScreen() {
           } else {
             recentWatches = [...recentWatches, watchData];
           }
+          // Limit recents
           recentWatches = recentWatches.slice(-20);
         } else {
           if (existingWatchIndex !== -1) {

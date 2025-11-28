@@ -1,6 +1,8 @@
 // src/components/WelcomeScreen.tsx
 import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+// 1. Add this import
+import { useNavigation } from '@react-navigation/native';
 
 const C = {
   bg: '#111C2A',
@@ -12,9 +14,24 @@ const C = {
   cta: '#511619',
 };
 
-type Props = { onGetStarted: () => void };
+// 2. We don't strictly need Props anymore, but we can keep it optional
+type Props = { onGetStarted?: () => void };
 
 export default function WelcomeScreen({ onGetStarted }: Props) {
+  // 3. Initialize the navigation hook
+  const navigation = useNavigation<any>();
+
+  const handlePress = () => {
+    // If a prop was passed, use it (backward compatibility)
+    if (onGetStarted) {
+      onGetStarted();
+    } else {
+      // 4. OTHERWISE, NAVIGATE MANUALLY
+      // MAKE SURE 'Auth' MATCHES THE NAME IN YOUR AuthNavigator.tsx FILE
+      navigation.navigate('Auth'); 
+    }
+  };
+
   return (
     <View style={s.root}>
       <Text style={s.brand}>filmatch</Text>
@@ -27,7 +44,8 @@ export default function WelcomeScreen({ onGetStarted }: Props) {
           sharing your taste in films
         </Text>
 
-        <TouchableOpacity style={s.cta} onPress={onGetStarted} activeOpacity={0.9}>
+        {/* 5. Update onPress to use our new handler */}
+        <TouchableOpacity style={s.cta} onPress={handlePress} activeOpacity={0.9}>
           <Text style={s.ctaText}>get started</Text>
         </TouchableOpacity>
 

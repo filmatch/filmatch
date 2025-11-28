@@ -5,6 +5,8 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { NavigationContainer } from '@react-navigation/native';
 import { View, Text, ActivityIndicator } from 'react-native';
 import { onAuthStateChanged, User } from 'firebase/auth';
+// 1. ADD THIS IMPORT
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 // Navigation
 import AuthNavigator from './src/navigation/AuthNavigator';
@@ -32,17 +34,13 @@ class AppErrorBoundary extends React.Component<{ children: React.ReactNode }, { 
     return this.props.children as any;
   }
 }
-
 export default function App() {
-  // We keep the state logic, but only to avoid rendering NavigationContainer
-  // until Firebase auth state is loaded, not to choose the navigator.
   const [initializing, setInitializing] = useState(true);
   const [user, setUser] = useState<User | null>(null);
 
   useEffect(() => {
-    // We only need to know if the state has been loaded.
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-      setUser(currentUser); // This still runs in the background
+      setUser(currentUser); 
       if (initializing) setInitializing(false);
     });
 
@@ -50,7 +48,6 @@ export default function App() {
   }, []);
 
   if (initializing) {
-    // Show a loading spinner while checking local storage for a user
     return (
       <View style={{ flex: 1, backgroundColor: '#111C2A', justifyContent: 'center', alignItems: 'center' }}>
         <ActivityIndicator size="large" color="#F0E4C1" />
@@ -60,14 +57,15 @@ export default function App() {
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
-      <StatusBar style="light" />
-      <AppErrorBoundary>
-        <NavigationContainer ref={navigationRef}>
-          {/* 💡 FIX: The AuthNavigator is now the single root component. 
-          It contains all logic for checking profile and rendering MainApp internally. */}
-          <AuthNavigator />
-        </NavigationContainer>
-      </AppErrorBoundary>
+      {/* 2. WRAP YOUR CONTENT IN SAFE AREA PROVIDER */}
+      <SafeAreaProvider>
+        <StatusBar style="light" />
+        <AppErrorBoundary>
+          <NavigationContainer ref={navigationRef}>
+            <AuthNavigator />
+          </NavigationContainer>
+        </AppErrorBoundary>
+      </SafeAreaProvider>
     </GestureHandlerRootView>
   );
 }

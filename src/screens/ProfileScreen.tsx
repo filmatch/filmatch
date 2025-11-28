@@ -19,47 +19,20 @@ import { StatusBar } from 'expo-status-bar';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { FirebaseAuthService } from '../services/FirebaseAuthService';
 import { FirestoreService } from '../services/FirestoreService';
-import type { UserProfile } from '../types';
-import { navigateNested, logTree } from '../navigation/RootNavigation';
 import TMDbService from '../services/TMDbService';
+import { navigateNested, logTree } from '../navigation/RootNavigation';
+import ProfileCard from '../components/ProfileCard'; // <--- The new shared component
 
 const { width, height } = Dimensions.get('window');
-const CARD_W = Math.min(width * 0.92, 420);
-const CARD_H = Math.min(height * 0.78, 720);
+const PROFILE_PHOTO_SIZE = (width - 60) / 4 - 6;
 
-type PosterCache = Record<string, string | null>;
-
-// --- Helper Components for Preview Card (Swipe Style) ---
-const Chip = ({ text }: { text: string }) => (
-  <View style={styles.chip}>
-    <Text style={styles.chipText}>{text}</Text>
-  </View>
-);
-
-const PosterTile = ({ title, posterPath }: { title: string; posterPath?: string | null }) => (
-  <View style={styles.posterTile}>
-    {posterPath ? (
-      <Image source={{ uri: `https://image.tmdb.org/t/p/w154${posterPath}` }} style={styles.posterImg} />
-    ) : (
-      <View style={[styles.posterImg, styles.posterPlaceholder]}>
-        <Text style={styles.posterPlaceholderText}>no{'\n'}image</Text>
-      </View>
-    )}
-    <Text style={styles.posterCaption} numberOfLines={1}>
-      {title}
-    </Text>
-  </View>
-);
+// Helper function to generate keys for cache
+const keyFor = (title: string, year?: number) => `${(title || '').trim().toLowerCase()}-${year || ''}`;
 
 export default function ProfileScreen() {
-  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+  const [userProfile, setUserProfile] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
-  const [posterCache, setPosterCache] = useState<PosterCache>({});
-  const [postersLoading, setPostersLoading] = useState(false);
-
-  // Preview State
   const [previewVisible, setPreviewVisible] = useState(false);
-  const [previewPhotoIndex, setPreviewPhotoIndex] = useState(0);
 
   const nav = useNavigation();
   const starFontFamily = Platform.select({ ios: 'System', android: 'sans-serif' });
@@ -73,13 +46,8 @@ export default function ProfileScreen() {
       if (!loading && userProfile) {
         loadUserProfile();
       }
-    }, [loading, userProfile])
+    }, [loading]) // Removed userProfile dependency to prevent loop
   );
-
-  useEffect(() => {
-    if (!userProfile) return;
-    fetchMissingPosters(userProfile);
-  }, [userProfile?.favorites, userProfile?.recentWatches]);
 
   const loadUserProfile = async () => {
     try {
@@ -88,9 +56,16 @@ export default function ProfileScreen() {
         Alert.alert('error', 'no user found. please sign in again.');
         return;
       }
-      const profile = await FirestoreService.getUserProfile(currentUser.uid);
-      if (profile) setUserProfile(profile);
-      else Alert.alert('error', 'could not load user profile.');
+      
+      let profile = await FirestoreService.getUserProfile(currentUser.uid);
+      
+      if (profile) {
+        // ENRICH DATA: Fix missing posters automatically using the Service
+        const richProfile = await TMDbService.enrichProfile(profile);
+        setUserProfile(richProfile);
+      } else {
+        Alert.alert('error', 'could not load user profile.');
+      }
     } catch (error) {
       console.error('error loading user profile:', error);
       Alert.alert('error', 'failed to load profile data.');
@@ -120,42 +95,6 @@ export default function ProfileScreen() {
     ]);
   };
 
-  const keyFor = (title: string, year?: number) => `${(title || '').trim().toLowerCase()}-${year || ''}`;
-
-  const fetchMissingPosters = async (profile: UserProfile) => {
-    const want: { title: string; year?: number }[] = [];
-    const favs = (profile.favorites || []).slice(0, 4);
-    favs.forEach((f) => {
-      const k = keyFor(f.title, f.year as any);
-      if (!(k in posterCache)) want.push({ title: f.title, year: f.year as any });
-    });
-    (profile.recentWatches || []).forEach((r) => {
-      const k = keyFor(r.title, r.year as any);
-      if (!(k in posterCache)) want.push({ title: r.title, year: r.year as any });
-    });
-
-    if (!want.length) return;
-
-    setPostersLoading(true);
-    try {
-      const updates: PosterCache = {};
-      for (const w of want) {
-        try {
-          const results = await TMDbService.searchMovies(w.title);
-          let match = results.find((m) => (m.year ? m.year === w.year : false)) || results[0];
-          updates[keyFor(w.title, w.year)] = match?.poster_path ?? null;
-        } catch (_) {
-          updates[keyFor(w.title, w.year)] = null;
-        }
-      }
-      setPosterCache((prev) => ({ ...prev, ...updates }));
-    } finally {
-      setPostersLoading(false);
-    }
-  };
-
-  const fourFavorites = useMemo(() => (userProfile?.favorites || []).slice(0, 4), [userProfile?.favorites]);
-
   const handleEditPreferences = () => {
     logTree?.();
     navigateNested('MainApp', 'EditPreferences');
@@ -166,151 +105,7 @@ export default function ProfileScreen() {
     navigateNested('MainApp', 'EditProfile');
   };
 
-  // --- Preview Logic ---
-  const handlePreviewTap = () => {
-    setPreviewPhotoIndex(0);
-    setPreviewVisible(true);
-  };
-
-  const cyclePreviewPhoto = () => {
-    if (userProfile?.photos && userProfile.photos.length > 1) {
-      setPreviewPhotoIndex((prev) => (prev + 1) % userProfile.photos!.length);
-    }
-  };
-
-  // --- Render The Preview Card (Strictly SwipeScreen Style) ---
-  const renderPreviewCard = () => {
-    if (!userProfile) return null;
-
-    const topGenres = (userProfile.genreRatings || [])
-      .filter((g) => g.rating > 0)
-      .sort((a, b) => b.rating - a.rating)
-      .slice(0, 5)
-      .map((g) => g.genre);
-
-    const photos = userProfile.photos || [];
-    const safeIndex = previewPhotoIndex < photos.length ? previewPhotoIndex : 0;
-    const currentPhoto = photos[safeIndex];
-
-    return (
-      <View style={styles.card}>
-        {/* Header */}
-        <View style={styles.headerRow}>
-          <View style={{ flex: 1, paddingRight: 8 }}>
-            <Text style={styles.name}>
-              {userProfile.displayName}
-              {userProfile.age ? `, ${userProfile.age}` : ""}
-              {userProfile.city ? ` • ${userProfile.city}` : ""}
-            </Text>
-          </View>
-          <View style={styles.compBadge}>
-            <Text style={styles.compText}>you</Text>
-            <Text style={styles.compCaption}>public view</Text>
-          </View>
-        </View>
-
-        {/* Bio */}
-        {userProfile.bio ? (
-          <Text style={styles.bioCard} numberOfLines={3}>
-            {userProfile.bio}
-          </Text>
-        ) : null}
-
-        {/* Photos - Clickable */}
-        {photos.length > 0 ? (
-          <TouchableOpacity
-            activeOpacity={0.9}
-            onPress={cyclePreviewPhoto}
-            style={styles.photoContainer}
-          >
-            <Image
-              key={`photo-${safeIndex}`}
-              source={{ uri: currentPhoto }}
-              style={styles.photo}
-              resizeMode="cover"
-            />
-            
-            {/* Indicators */}
-            {photos.length > 1 && (
-              <View style={styles.photoIndicatorContainer}>
-                {photos.map((_, index) => (
-                  <View
-                    key={index}
-                    style={[
-                      styles.photoIndicatorDot,
-                      index === safeIndex && styles.photoIndicatorDotActive,
-                    ]}
-                  />
-                ))}
-              </View>
-            )}
-
-            {/* Tap Hint (First photo only) */}
-            {photos.length > 1 && safeIndex === 0 && (
-              <View style={styles.tapHint}>
-                 <Text style={styles.tapHintText}>tap to see next photo</Text>
-              </View>
-            )}
-          </TouchableOpacity>
-        ) : (
-          <View style={styles.noPhotosPlaceholder}>
-            <Text style={styles.noPhotosText}>no photos added</Text>
-          </View>
-        )}
-
-        {/* Genres (Chips) */}
-        {topGenres.length > 0 && (
-          <>
-            <Text style={styles.sectionTitleCard}>favorite genres</Text>
-            <View style={styles.genresWrap}>
-              {topGenres.map((g) => (
-                <Chip key={g} text={g} />
-              ))}
-            </View>
-          </>
-        )}
-
-        {/* Fav Films */}
-        {fourFavorites.length > 0 && (
-          <>
-            <Text style={styles.sectionTitleCard}>fav 4 films</Text>
-            <View style={styles.posterRow}>
-              {fourFavorites.map((fav) => {
-                const k = keyFor(fav.title, fav.year as any);
-                const path = posterCache[k];
-                return <PosterTile key={fav.id} title={fav.title} posterPath={path} />;
-              })}
-            </View>
-          </>
-        )}
-
-        {/* Recents (Chips) */}
-        {(userProfile.recentWatches || []).length > 0 && (
-          <>
-            <Text style={styles.sectionTitleCard}>recents</Text>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={{ gap: 8 }}
-            >
-              {(userProfile.recentWatches || []).slice(0, 5).map((r) => (
-                <Chip key={r.id} text={r.title.toLowerCase()} />
-              ))}
-            </ScrollView>
-          </>
-        )}
-
-        {/* Close Button (Footer) */}
-        <View style={styles.cardFooter}>
-          <TouchableOpacity style={styles.closePreviewButton} onPress={() => setPreviewVisible(false)}>
-            <Text style={styles.closePreviewText}>close preview</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-    );
-  };
-
-  // --- Main Render ---
+  // --- Render Helpers ---
 
   if (loading) {
     return (
@@ -340,9 +135,12 @@ export default function ProfileScreen() {
 
   const profilePhotoUrl = (userProfile.photos && userProfile.photos.length > 0) ? userProfile.photos[0] : null;
   const totalWatches = (userProfile.recentWatches || []).length;
-  const ratedGenres = (userProfile.genreRatings || []).filter((g) => g.rating > 0).length;
+  const ratedGenres = (userProfile.genreRatings || []).filter((g: any) => g.rating > 0).length;
   const genderDisplay = userProfile.gender || '';
   const interestedInDisplay = (userProfile.genderPreferences || []).join(', ');
+  
+  // Favorites logic
+  const fourFavorites = (userProfile.favorites || []).slice(0, 4);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -353,7 +151,7 @@ export default function ProfileScreen() {
         contentContainerStyle={styles.scrollContent}
         refreshControl={<RefreshControl refreshing={loading} onRefresh={handleRefresh} />}
       >
-        {/* Profile Header (Original Style + Mini Preview Button) */}
+        {/* Profile Header */}
         <View style={styles.profileHeader}>
           <View style={styles.profileInfo}>
             
@@ -369,17 +167,23 @@ export default function ProfileScreen() {
                 )}
               </View>
 
-              {/* PREVIEW BUTTON UNDER PHOTO */}
-              <TouchableOpacity style={styles.miniPreviewBtn} onPress={handlePreviewTap}>
+              {/* PREVIEW BUTTON -> OPENS NEW SHARED CARD */}
+              <TouchableOpacity style={styles.miniPreviewBtn} onPress={() => setPreviewVisible(true)}>
                 <Text style={styles.miniPreviewText}>preview</Text>
               </TouchableOpacity>
             </View>
 
-            {/* RIGHT COLUMN: Details */}
+            {/* RIGHT COLUMN: Details + Edit Button */}
             <View style={styles.userDetails}>
-              <Text style={styles.displayName}>
-                {(userProfile.displayName || 'movie lover').toLowerCase()}
-              </Text>
+               <View style={styles.nameAndEditRow}>
+                   <Text style={styles.displayName}>
+                     {(userProfile.displayName || 'movie lover').toLowerCase()}
+                   </Text>
+                   
+                   <TouchableOpacity style={styles.smallEditBtn} onPress={handleEditProfile}>
+                       <Text style={styles.smallEditBtnText}>edit profile</Text>
+                   </TouchableOpacity>
+               </View>
 
               {(userProfile.age || userProfile.city || genderDisplay) && (
                 <Text style={styles.profileLine}>
@@ -407,16 +211,15 @@ export default function ProfileScreen() {
             <Text style={styles.sectionMeta}>{fourFavorites.length}/4</Text>
           </View>
           <View style={styles.favoritesGrid}>
-            {Array.from({ length: 4 }).map((_, idx) => {
+            {[0, 1, 2, 3].map((idx) => {
               const fav = fourFavorites[idx];
               if (!fav) return <View key={`empty-${idx}`} style={[styles.posterSlot, styles.emptySlot]} />;
               
-              const k = keyFor(fav.title, fav.year as any);
-              const poster = posterCache[k];
+              // Use enrichProfile data directly
               return (
-                <TouchableOpacity key={fav.id} style={styles.posterSlot}>
-                  {poster ? (
-                    <Image source={{ uri: `https://image.tmdb.org/t/p/w342${poster}` }} style={styles.posterImage} />
+                <TouchableOpacity key={fav.id || idx} style={styles.posterSlot}>
+                  {fav.poster ? (
+                    <Image source={{ uri: fav.poster }} style={styles.posterImage} />
                   ) : (
                     <View style={[styles.posterImage, styles.posterPlaceholder]}>
                       <Text style={styles.posterPlaceholderText}>no{'\n'}image</Text>
@@ -428,7 +231,7 @@ export default function ProfileScreen() {
           </View>
         </View>
 
-        {/* Recent Diary (Original List Style with Stars) */}
+        {/* Recent Diary (YOUR ORIGINAL LIST STYLE PRESERVED) */}
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>recent diary entries</Text>
@@ -436,9 +239,6 @@ export default function ProfileScreen() {
               <Text style={styles.sectionMeta}>
                 {totalWatches > 0 ? `last ${Math.min(totalWatches, 4)}` : 'none yet'}
               </Text>
-              <TouchableOpacity onPress={handleRefresh} style={styles.refreshButton}>
-                <Text style={styles.refreshButtonText}>refresh</Text>
-              </TouchableOpacity>
             </View>
           </View>
 
@@ -447,17 +247,15 @@ export default function ProfileScreen() {
               <Text style={styles.emptyText}>no diary entries yet</Text>
             ) : (
               (userProfile.recentWatches || [])
-                .slice()
-                .reverse()
+                .slice() // Copy to avoid mutation
+                .reverse() // Show newest first? Or assume server order. Let's assume order needs reversing if it's chronological
                 .slice(0, 4)
-                .map((movie, index) => {
-                  const k = keyFor(movie.title, movie.year as any);
-                  const poster = posterCache[k];
+                .map((movie: any, index: number) => {
                   return (
                     <View key={`${movie.id}-${index}`} style={styles.diaryEntry}>
                       <View style={styles.diaryPoster}>
-                        {poster ? (
-                          <Image source={{ uri: `https://image.tmdb.org/t/p/w154${poster}` }} style={styles.diaryPosterImage} />
+                        {movie.poster ? (
+                          <Image source={{ uri: movie.poster }} style={styles.diaryPosterImage} />
                         ) : (
                           <View style={[styles.diaryPosterImage, styles.posterPlaceholder]}>
                             <Text style={styles.posterPlaceholderText}>no{'\n'}image</Text>
@@ -476,7 +274,7 @@ export default function ProfileScreen() {
                                 style={[
                                   styles.starText,
                                   { fontFamily: starFontFamily },
-                                  movie.rating >= star ? styles.starFilled : styles.starEmpty,
+                                  (movie.rating || 0) >= star ? styles.starFilled : styles.starEmpty,
                                 ]}
                               >
                                 ★
@@ -493,7 +291,7 @@ export default function ProfileScreen() {
           </View>
         </View>
 
-        {/* Genres (Original Grid Style with Stars) */}
+        {/* Genres (YOUR ORIGINAL GRID STYLE PRESERVED) */}
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>top genres</Text>
@@ -505,10 +303,10 @@ export default function ProfileScreen() {
               <Text style={styles.emptyText}>no genre preferences set</Text>
             ) : (
               (userProfile.genreRatings || [])
-                .filter((g) => g.rating > 0)
-                .sort((a, b) => b.rating - a.rating)
+                .filter((g: any) => g.rating > 0)
+                .sort((a: any, b: any) => b.rating - a.rating)
                 .slice(0, 6)
-                .map((genre) => (
+                .map((genre: any) => (
                   <View key={genre.genre} style={styles.genreChip}>
                     <Text style={styles.genreTitle}>{genre.genre.toLowerCase()}</Text>
                     <View style={styles.genreStars}>
@@ -536,23 +334,13 @@ export default function ProfileScreen() {
           <TouchableOpacity style={styles.primaryButton} onPress={handleEditPreferences}>
             <Text style={styles.primaryButtonText}>edit preferences</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.editProfileButton} onPress={handleEditProfile}>
-            <Text style={styles.editProfileButtonText}>edit profile</Text>
-          </TouchableOpacity>
           <TouchableOpacity style={styles.secondaryButton} onPress={confirmSignOut}>
             <Text style={styles.secondaryButtonText}>sign out</Text>
           </TouchableOpacity>
         </View>
-
-        {postersLoading && (
-          <View style={styles.loadingIndicator}>
-            <ActivityIndicator size="small" color="#F0E4C1" />
-            <Text style={styles.loadingText}>fetching posters...</Text>
-          </View>
-        )}
       </ScrollView>
 
-      {/* PREVIEW MODAL */}
+      {/* PREVIEW MODAL (Uses New Shared Card) */}
       <Modal
         visible={previewVisible}
         transparent={true}
@@ -560,19 +348,15 @@ export default function ProfileScreen() {
         onRequestClose={() => setPreviewVisible(false)}
       >
         <View style={styles.modalOverlay}>
-          <SafeAreaView style={styles.modalSafeArea}>
-            <View style={styles.modalCenter}>
-               {renderPreviewCard()}
-            </View>
-          </SafeAreaView>
+          <View style={styles.modalCenter}>
+             <ProfileCard profile={userProfile} isPreview={true} onClose={() => setPreviewVisible(false)} />
+          </View>
         </View>
       </Modal>
 
     </SafeAreaView>
   );
 }
-
-const PROFILE_PHOTO_SIZE = (width - 60) / 4 - 6;
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#111C2A' },
@@ -641,20 +425,35 @@ const styles = StyleSheet.create({
   },
 
   userDetails: { flex: 1, paddingTop: 4 },
-  displayName: { color: '#F0E4C1', fontSize: 26, fontWeight: 'bold', marginBottom: 8, textTransform: 'lowercase' },
+  
+  nameAndEditRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 },
+  displayName: { color: '#F0E4C1', fontSize: 24, fontWeight: 'bold', textTransform: 'lowercase', flex: 1, marginRight: 8 },
+  
+  smallEditBtn: {
+      paddingHorizontal: 10,
+      paddingVertical: 6,
+      borderRadius: 8,
+      backgroundColor: 'rgba(240,228,193,0.1)',
+      borderWidth: 1,
+      borderColor: 'rgba(240,228,193,0.2)',
+  },
+  smallEditBtnText: {
+      color: '#F0E4C1',
+      fontSize: 11,
+      fontWeight: '600',
+      textTransform: 'lowercase',
+  },
+
   profileLine: { color: '#F0E4C1', fontSize: 16, opacity: 0.85, marginBottom: 8, textTransform: 'lowercase', lineHeight: 22 },
   bio: { color: '#F0E4C1', fontSize: 15, opacity: 0.8, marginBottom: 8, textTransform: 'lowercase', lineHeight: 22 },
   interestedIn: { color: '#F0E4C1', fontSize: 15, opacity: 0.75, marginTop: 4, textTransform: 'lowercase', fontStyle: 'italic', lineHeight: 22 },
 
-  // --- Standard Profile Sections (Original UI) ---
+  // --- Standard Profile Sections ---
   section: { paddingHorizontal: 20, paddingVertical: 24 },
   sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
   sectionTitle: { color: '#F0E4C1', fontSize: 18, fontWeight: 'bold', textTransform: 'lowercase' },
   sectionMeta: { color: '#F0E4C1', fontSize: 14, opacity: 0.6, textTransform: 'lowercase' },
   
-  refreshButton: { marginLeft: 12, paddingHorizontal: 8, paddingVertical: 4, backgroundColor: 'rgba(240, 228, 193, 0.1)', borderRadius: 6 },
-  refreshButtonText: { color: '#F0E4C1', fontSize: 12, textTransform: 'lowercase' },
-
   favoritesGrid: { flexDirection: 'row', justifyContent: 'space-between', gap: 8 },
   posterSlot: { width: PROFILE_PHOTO_SIZE, height: PROFILE_PHOTO_SIZE * 1.5, borderRadius: 4, overflow: 'hidden' },
   posterImage: { width: '100%', height: '100%', backgroundColor: 'rgba(240, 228, 193, 0.1)' },
@@ -691,67 +490,10 @@ const styles = StyleSheet.create({
   actionsContainer: { paddingHorizontal: 20, paddingTop: 20, gap: 12 },
   primaryButton: { backgroundColor: '#511619', borderRadius: 12, paddingVertical: 16, alignItems: 'center' },
   primaryButtonText: { color: '#F0E4C1', fontSize: 16, fontWeight: '700', textTransform: 'lowercase' },
-  editProfileButton: { backgroundColor: 'rgba(240, 228, 193, 0.1)', borderRadius: 12, paddingVertical: 16, alignItems: 'center', borderWidth: 1, borderColor: 'rgba(240, 228, 193, 0.2)' },
-  editProfileButtonText: { color: '#F0E4C1', fontSize: 16, fontWeight: '700', textTransform: 'lowercase' },
   secondaryButton: { backgroundColor: 'transparent', borderRadius: 12, paddingVertical: 16, alignItems: 'center', borderWidth: 1, borderColor: 'rgba(240, 228, 193, 0.3)' },
   secondaryButtonText: { color: '#F0E4C1', fontSize: 16, fontWeight: '600', textTransform: 'lowercase' },
-  loadingIndicator: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingTop: 16 },
-
-  // --- MODAL & CARD STYLES (Strictly SwipeScreen) ---
-  modalOverlay: { flex: 1, backgroundColor: '#111C2A' },
-  modalSafeArea: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  modalCenter: { width: width, alignItems: 'center' },
-
-  card: {
-    width: CARD_W, minHeight: CARD_H, backgroundColor: "rgba(240,228,193,0.07)",
-    borderRadius: 22, borderWidth: 1, borderColor: "rgba(240,228,193,0.18)", padding: 18,
-  },
-  headerRow: { flexDirection: "row", alignItems: "center", marginBottom: 8 },
-  name: { color: "#F0E4C1", fontSize: 22, fontWeight: "800", textTransform: "lowercase" },
-  compBadge: {
-    alignItems: "center", justifyContent: "center", paddingHorizontal: 14, paddingVertical: 8,
-    backgroundColor: "#511619", borderRadius: 16, minWidth: 86,
-  },
-  compText: { color: "#F0E4C1", fontSize: 18, fontWeight: "900" },
-  compCaption: { color: "#F0E4C1", opacity: 0.85, fontSize: 10, marginTop: -2, textTransform: "lowercase" },
-  bioCard: { color: "#F0E4C1", opacity: 0.95, marginBottom: 12, lineHeight: 20 },
   
-  photoContainer: { marginVertical: 8, position: 'relative' },
-  photo: { width: CARD_W - 36, height: 280, borderRadius: 14, backgroundColor: "#0b1220" },
-  
-  photoIndicatorContainer: {
-    position: 'absolute', bottom: 12, left: 0, right: 0, flexDirection: 'row', justifyContent: 'center', gap: 6,
-  },
-  photoIndicatorDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: 'rgba(240,228,193,0.4)' },
-  photoIndicatorDotActive: { backgroundColor: '#F0E4C1', width: 20 },
-
-  tapHint: {
-    position: 'absolute', top: 12, right: 12, backgroundColor: 'rgba(17,28,42,0.8)',
-    paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, borderWidth: 1, borderColor: 'rgba(240,228,193,0.3)',
-  },
-  tapHintText: { color: '#F0E4C1', fontSize: 11, fontWeight: '600', textTransform: 'lowercase' },
-
-  noPhotosPlaceholder: {
-    width: CARD_W - 36, height: 200, borderRadius: 14, backgroundColor: "rgba(240,228,193,0.08)",
-    alignItems: "center", justifyContent: "center", marginVertical: 8,
-  },
-  noPhotosText: { color: "rgba(240,228,193,0.5)", fontSize: 14 },
-  
-  sectionTitleCard: { color: "#F0E4C1", fontSize: 13, fontWeight: "700", marginTop: 12, marginBottom: 8, textTransform: "lowercase" },
-  
-  posterRow: { flexDirection: "row", gap: 8 },
-  posterTile: { width: 60 },
-  posterImg: { width: 60, height: 85, borderRadius: 6, backgroundColor: "rgba(240,228,193,0.1)" },
-  posterCaption: { color: "#F0E4C1", fontSize: 10, marginTop: 4 },
-
-  genresWrap: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  chip: {
-    paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999,
-    backgroundColor: "rgba(240,228,193,0.14)", borderWidth: 1, borderColor: "rgba(240,228,193,0.26)",
-  },
-  chipText: { color: "#F0E4C1", fontWeight: "700", fontSize: 12, textTransform: "lowercase" },
-
-  cardFooter: { marginTop: 20, alignItems: 'center' },
-  closePreviewButton: { paddingVertical: 12, paddingHorizontal: 24, backgroundColor: 'rgba(0,0,0,0.3)', borderRadius: 20, borderWidth: 1, borderColor: 'rgba(240,228,193,0.2)' },
-  closePreviewText: { color: '#F0E4C1', fontSize: 14, fontWeight: '600' },
+  // MODAL STYLES
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(17,28,42,0.95)', justifyContent: 'center', alignItems: 'center' },
+  modalCenter: { justifyContent: 'center', alignItems: 'center' },
 });

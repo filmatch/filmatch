@@ -6,6 +6,7 @@ import TMDbService from './TMDbService';
 export class MatchingService {
   private static db = getFirestore();
 
+  // 1. FIXED: Gender & City Filter
   static async getPotentialMatches(
     currentUserId: string,
     currentUserGender: string,
@@ -14,105 +15,56 @@ export class MatchingService {
     maxResults: number = 20
   ): Promise<UserProfile[]> {
     try {
-      if (!genderPreferences || genderPreferences.length === 0) return [];
+      // Safety fallback: If no preference, default to opposite
+      let safePrefs = genderPreferences;
+      if (!safePrefs || safePrefs.length === 0) {
+        safePrefs = currentUserGender === 'Male' ? ['Female'] : ['Male'];
+      }
+
+      console.log(`Finding matches for ${currentUserId} (${currentUserGender}) looking for:`, safePrefs);
 
       const usersRef = collection(this.db, 'users');
       let snapshot;
+      
+      const constraints = [
+        where('hasProfile', '==', true),
+        where('gender', 'in', safePrefs), // CRITICAL FIX: Actually filters by gender
+      ];
 
-      // 1. Şehir Filtresi (Varsa önce bunu dene)
+      // Try to find people in the same city first
       if (userCity) {
         try {
           const qCity = query(
             usersRef,
-            where('hasProfile', '==', true),
+            ...constraints,
             where('city', '==', userCity),
-            where('gender', 'in', genderPreferences),
             limit(50)
           );
           snapshot = await getDocs(qCity);
         } catch (e) {
-          console.log('Şehir sorgusu hata verdi (Index gerekebilir), genele geçiliyor.');
+          console.warn('City query failed, falling back to global.');
         }
       }
 
-      // 2. Genel Arama (Yedek Plan)
-      // Eğer şehirde kimse yoksa veya hata aldıysa burası çalışır
-      if (!snapshot || snapshot.size < 2) {
-        const qGlobal = query(
-          usersRef,
-          where('hasProfile', '==', true),
-          where('gender', 'in', genderPreferences),
-          limit(50)
-        );
+      // Global fallback if city found no one
+      if (!snapshot || snapshot.empty || snapshot.size < 2) {
+        const qGlobal = query(usersRef, ...constraints, limit(50));
         snapshot = await getDocs(qGlobal);
       }
 
+      // Filter out people you've ALREADY swiped on
       const alreadySwipedIds = await this.getSwipedUserIds(currentUserId);
       
       const matches = snapshot.docs
-        .filter(doc => {
-          const data = doc.data() as UserProfile;
-          
-          // Temel kontroller
-          if (data.uid === currentUserId) return false;
-          if (alreadySwipedIds.includes(data.uid)) return false;
-          
-          // NOT: Filtreleri test için kapattık. Geri açmak istersen yorumu kaldır:
-          // const theyLookingForMe = data.genderPreferences?.includes(currentUserGender);
-          // if (!theyLookingForMe) return false;
-
+        .map(doc => doc.data() as UserProfile)
+        .filter(user => {
+          if (user.uid === currentUserId) return false; // Don't match self
+          if (alreadySwipedIds.includes(user.uid)) return false; // Don't show again
           return true;
         })
-        .map(doc => doc.data() as UserProfile)
         .slice(0, maxResults);
 
-      console.log(`Posterler işleniyor... Bulunan kişi: ${matches.length}`);
-
-      // --- ID TEMİZLEME VE POSTER ÇEKME ---
-      const enrichedMatches = await Promise.all(
-        matches.map(async (profile) => {
-          if (profile.favorites && profile.favorites.length > 0) {
-            const enrichedFavorites = await Promise.all(
-              profile.favorites.map(async (fav) => {
-                // URL zaten varsa dokunma
-                if (fav.poster && fav.poster.startsWith('http')) return fav;
-
-                try {
-                  // ID TEMİZLİKÇİSİ 🧹
-                  let cleanId = fav.id;
-
-                  // "fav_38_12345" formatını "38"e çevir
-                  if (typeof cleanId === 'string' && cleanId.includes('fav_')) {
-                    const parts = cleanId.split('_');
-                    if (parts[1]) {
-                      cleanId = parts[1]; 
-                    }
-                  }
-
-                  const movieId = Number(cleanId);
-                  
-                  if (!isNaN(movieId) && movieId > 0) {
-                    const details = await TMDbService.getMovieDetails(movieId);
-                    if (details && details.poster_path) {
-                      const posterUrl = TMDbService.getPosterUrl(details.poster_path, 'w342');
-                      if (posterUrl) {
-                        return { ...fav, poster: posterUrl };
-                      }
-                    }
-                  }
-                } catch (err) {
-                  // Hata olursa sessizce devam et
-                }
-                return fav;
-              })
-            );
-            return { ...profile, favorites: enrichedFavorites };
-          }
-          return profile;
-        })
-      );
-
-      return enrichedMatches;
+      return matches;
 
     } catch (error) {
       console.error('Matching error:', error);
@@ -120,38 +72,72 @@ export class MatchingService {
     }
   }
 
+  // 2. FIXED: Swipe History Check
   private static async getSwipedUserIds(currentUserId: string): Promise<string[]> {
     try {
       const swipesRef = collection(this.db, 'swipes');
-      const allSwipes = await getDocs(swipesRef);
+      // Look for docs where YOU are the "fromUserId"
+      const q = query(swipesRef, where('fromUserId', '==', currentUserId)); 
+      
+      const snapshot = await getDocs(q);
       const swipedIds: string[] = [];
-      allSwipes.forEach(doc => {
-        const [swiperId, targetId] = doc.id.split('_');
-        if (swiperId === currentUserId && targetId) swipedIds.push(targetId);
+      
+      snapshot.forEach(doc => {
+        const data = doc.data();
+        if (data.toUserId) {
+          swipedIds.push(data.toUserId);
+        }
       });
+      
       return swipedIds;
-    } catch (error) { return []; }
+    } catch (error) { 
+      console.error("Error fetching swipe history:", error);
+      return []; 
+    }
   }
 
+  // 3. RESTORED: Compatibility Calculation (This was missing!)
   static calculateCompatibility(user1: UserProfile, user2: UserProfile): number {
-    let totalScore = 0; let totalWeight = 0;
-    // Basitleştirilmiş puanlama
-    if (user1.genreRatings?.length && user2.genreRatings?.length) {
-      totalScore += this.compareGenreRatings(user1.genreRatings, user2.genreRatings) * 40; totalWeight += 40;
-    }
-    if (user1.favorites?.length && user2.favorites?.length) {
-      // Basit eşleşme (şimdilik %50 varsayalım)
-      totalScore += 0.5 * 30; totalWeight += 30;
-    }
-    if (user1.recentWatches?.length && user2.recentWatches?.length) {
-      totalScore += 0.5 * 30; totalWeight += 30;
-    }
-    if (totalWeight === 0) return 60;
-    return Math.max(0, Math.min(100, Math.round(totalScore / totalWeight * 100)));
-  }
+    let score = 0;
+    let totalWeight = 0;
 
-  private static compareGenreRatings(r1: any[], r2: any[]) { 
-    // Basit tür karşılaştırması
-    return 0.7; 
+    // A. Genre Overlap (Weight: 50)
+    if (user1.genreRatings?.length && user2.genreRatings?.length) {
+      const u1High = user1.genreRatings.filter(g => g.rating >= 4).map(g => g.genre);
+      const u2High = user2.genreRatings.filter(g => g.rating >= 4).map(g => g.genre);
+      
+      const intersection = u1High.filter(g => u2High.includes(g)).length;
+      const union = new Set([...u1High, ...u2High]).size;
+      
+      const genreScore = union === 0 ? 0 : (intersection / union);
+      score += genreScore * 50;
+      totalWeight += 50;
+    }
+
+    // B. Favorites Overlap (Weight: 20)
+    if (user1.favorites?.length && user2.favorites?.length) {
+      const u1Ids = user1.favorites.map(f => String(f.id).replace('fav_', '').split('_')[0]);
+      const u2Ids = user2.favorites.map(f => String(f.id).replace('fav_', '').split('_')[0]);
+      
+      const favMatch = u1Ids.filter(id => u2Ids.includes(id)).length;
+      const favScore = Math.min(favMatch * 0.5, 1); 
+      score += favScore * 20;
+      totalWeight += 20;
+    }
+
+    // C. Age Proximity (Weight: 30)
+    if (user1.age && user2.age) {
+      const diff = Math.abs(user1.age - user2.age);
+      let ageScore = 0;
+      if (diff <= 2) ageScore = 1;
+      else if (diff <= 5) ageScore = 0.8;
+      else if (diff <= 10) ageScore = 0.5;
+      
+      score += ageScore * 30;
+      totalWeight += 30;
+    }
+
+    if (totalWeight === 0) return 60; 
+    return Math.max(10, Math.min(99, Math.round(score)));
   }
 }
