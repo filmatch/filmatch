@@ -29,12 +29,17 @@ import {
   getDoc,
   setDoc,
   getFirestore,
+  arrayUnion,
+  arrayRemove
 } from 'firebase/firestore';
 import { FirebaseAuthService } from '../services/FirebaseAuthService';
 import { FirestoreService } from '../services/FirestoreService';
 import { NotificationService } from '../services/NotificationService';
-import TMDbService from '../services/TMDbService'; // Import TMDbService
-import ProfileCard from '../components/ProfileCard'; // Import Shared Card
+import TMDbService from '../services/TMDbService';
+import { MatchingService } from '../services/MatchingService';
+import ProfileCard from '../components/ProfileCard';
+import CustomAlert from '../components/CustomAlert';
+import { COLORS } from '../theme';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -68,10 +73,28 @@ export default function ChatScreen() {
   const flatListRef = useRef<FlatList>(null);
   
   const [profileModalVisible, setProfileModalVisible] = useState(false);
+  const [menuVisible, setMenuVisible] = useState(false);
+  
+  const [alert, setAlert] = useState({ visible: false, title: '', message: '', buttons: [] });
 
   useEffect(() => {
     if (!currentUser || !chatId) return;
     loadOtherUserProfile();
+    
+    // Mark chat as read in Firestore
+    const markAsRead = async () => {
+      try {
+        const chatRef = doc(db, 'chats', chatId);
+        await updateDoc(chatRef, {
+            readBy: arrayUnion(currentUser.uid),
+            markedUnreadBy: arrayRemove(currentUser.uid)
+        });
+      } catch (error) {
+        console.log('Error marking chat as read:', error);
+      }
+    };
+    markAsRead();
+
     NotificationService.clearChatNotification(currentUser.uid, chatId).catch((err) => {
       console.log('Could not clear notification:', err);
     });
@@ -114,14 +137,26 @@ export default function ChatScreen() {
     try {
       const userIds = chatId.replace('chat_', '').split('_');
       const otherUserId = userIds.find(id => id !== currentUser.uid);
-      
       if (!otherUserId) return;
 
-      let profile = await FirestoreService.getUserProfile(otherUserId);
-      if (profile) {
-        // Automatically fetch missing posters for the profile card
-        profile = await TMDbService.enrichProfile(profile);
-        setOtherUser(profile);
+      const [otherProfile, myProfile] = await Promise.all([
+        FirestoreService.getUserProfile(otherUserId),
+        FirestoreService.getUserProfile(currentUser.uid)
+      ]);
+
+      if (otherProfile) {
+        // Calculate compatibility BEFORE enrichment while arrays are still IDs
+        let compatibility = 0;
+        if (myProfile) {
+            compatibility = MatchingService.calculateCompatibility(myProfile, otherProfile);
+        }
+
+        let enriched = await TMDbService.enrichProfile(otherProfile);
+        
+        // Attach the calculated compatibility to the enriched object
+        enriched = { ...enriched, compatibility: compatibility || 0 };
+        
+        setOtherUser(enriched);
       }
     } catch (error) {
       console.error('Error loading other user:', error);
@@ -143,7 +178,9 @@ export default function ChatScreen() {
           lastMessage: messageText,
           lastMessageTime: serverTimestamp(),
           lastSenderId: currentUser.uid, 
-          participants: chatId.replace('chat_', '').split('_')
+          participants: chatId.replace('chat_', '').split('_'),
+          markedUnreadBy: [],
+          readBy: [currentUser.uid]
       };
 
       if (!chatDoc.exists()) {
@@ -171,49 +208,107 @@ export default function ChatScreen() {
         );
       }
     } catch (error) {
-      console.error('❌ Error sending message:', error);
+      console.error('⚠️ Error sending message:', error);
       setInputText(messageText); 
     } finally {
       setSending(false);
     }
   };
 
+const handleReportPress = () => {
+  setAlert({
+    visible: true,
+    title: 'report user',
+    message: 'select a reason',
+    buttons: [
+      { text: 'inappropriate', style: 'destructive', onPress: () => { submitReport('inappropriate'); }},
+      { text: 'spam', style: 'destructive', onPress: () => { submitReport('spam'); }},
+      { text: 'harassment', style: 'destructive', onPress: () => { submitReport('harassment'); }},
+      { text: 'cancel', style: 'cancel', onPress: () => setAlert({ ...alert, visible: false }) },
+    ]
+  });
+};
+  const submitReport = async (reason: string) => {
+    if (!currentUser || !otherUser) return;
+    try {
+      await addDoc(collection(db, 'user_reports'), {
+        reporterId: currentUser.uid,
+        reportedUserId: otherUser.uid,
+        reason: reason,
+        createdAt: serverTimestamp(),
+        status: 'PENDING'
+      });
+      setAlert({
+        visible: true,
+        title: 'report sent',
+        message: 'we will review this user',
+        buttons: [{ 
+          text: 'ok', 
+          onPress: () => {
+            setAlert({ ...alert, visible: false });
+            setTimeout(() => {
+              setAlert({
+                visible: true,
+                title: 'block this user?',
+                message: 'they will disappear from matches',
+                buttons: [
+                  { text: 'no', style: 'cancel', onPress: () => setAlert({ ...alert, visible: false }) },
+                  { text: 'block', style: 'destructive', onPress: () => { setAlert({ ...alert, visible: false }); executeBlock(); }}
+                ]
+              });
+            }, 300);
+          }
+        }]
+      });
+    } catch (error) {
+      setAlert({ visible: true, title: 'error', message: 'could not submit report', buttons: [{ text: 'ok', onPress: () => setAlert({ ...alert, visible: false }) }]});
+    }
+  };
+
+  const handleBlockPress = () => {
+    setMenuVisible(false);
+    setTimeout(() => {
+      setAlert({
+        visible: true,
+        title: 'block this user?',
+        message: 'they will disappear from your matches',
+        buttons: [
+          { text: 'cancel', style: 'cancel', onPress: () => setAlert({ ...alert, visible: false }) },
+          { text: 'block', style: 'destructive', onPress: () => { setAlert({ ...alert, visible: false }); executeBlock(); }}
+        ]
+      });
+    }, 200);
+  };
+
+  const executeBlock = async () => {
+    if (!currentUser || !otherUser) return;
+    try {
+      await setDoc(doc(db, 'user_blocks', `${currentUser.uid}_${otherUser.uid}`), {
+        blockerId: currentUser.uid,
+        blockedId: otherUser.uid,
+        createdAt: serverTimestamp()
+      });
+      setAlert({
+        visible: true,
+        title: 'user blocked',
+        message: 'they have been removed from your matches',
+        buttons: [{ text: 'ok', onPress: () => { setAlert({ ...alert, visible: false }); navigation.goBack(); }}]
+      });
+    } catch (error) {
+      console.error(error);
+      setAlert({ visible: true, title: 'error', message: 'could not block user', buttons: [{ text: 'ok', onPress: () => setAlert({ ...alert, visible: false }) }]});
+    }
+  };
+
   const renderMessage = ({ item, index }: { item: Message; index: number }) => {
     const isMyMessage = item.senderId === currentUser?.uid;
-    const showTime = index === 0 || 
-      (messages[index - 1]?.senderId !== item.senderId);
+    const showTime = index === 0 || (messages[index - 1]?.senderId !== item.senderId);
 
     return (
-      <View
-        style={[
-          styles.messageContainer,
-          isMyMessage ? styles.myMessageContainer : styles.theirMessageContainer,
-        ]}
-      >
-        <View
-          style={[
-            styles.messageBubble,
-            isMyMessage ? styles.myMessageBubble : styles.theirMessageBubble,
-          ]}
-        >
-          <Text
-            style={[
-              styles.messageText,
-              isMyMessage ? styles.myMessageText : styles.theirMessageText,
-            ]}
-          >
-            {item.text}
-          </Text>
-          {showTime && (
-            <Text
-              style={[
-                styles.messageTime,
-                isMyMessage ? styles.myMessageTime : styles.theirMessageTime,
-              ]}
-            >
-              {fmtTime(item.createdAt)}
-            </Text>
-          )}
+      <View style={[styles.messageContainer, isMyMessage ? styles.myMessageContainer : styles.theirMessageContainer]}>
+        <View style={[styles.messageBubble, isMyMessage ? styles.myMessageBubble : styles.theirMessageBubble]}>
+          <Text style={[styles.messageText, isMyMessage ? styles.myMessageText : styles.theirMessageText]}>{item.text}</Text>
+          {showTime && <Text style={[styles.messageTime, isMyMessage ? styles.myMessageTime : styles.theirMessageTime]}>{fmtTime(item.createdAt)}</Text>}
         </View>
       </View>
     );
@@ -224,7 +319,7 @@ export default function ChatScreen() {
       <SafeAreaView style={styles.container}>
         <StatusBar style="light" />
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#F0E4C1" />
+          <ActivityIndicator size="large" color={COLORS.text} />
         </View>
       </SafeAreaView>
     );
@@ -239,21 +334,19 @@ export default function ChatScreen() {
           <Text style={styles.backText}>←</Text>
         </TouchableOpacity>
         
-        {/* OPEN PROFILE MODAL ON CLICK */}
         <TouchableOpacity style={styles.headerProfile} onPress={() => setProfileModalVisible(true)}>
             {otherUser?.photos?.[0] ? (
             <Image source={{ uri: otherUser.photos[0] }} style={styles.headerAvatar} contentFit="cover" />
             ) : (
             <View style={[styles.headerAvatar, styles.avatarPlaceholder]}>
-                <Text style={styles.avatarText}>
-                {otherUser?.displayName?.[0]?.toUpperCase() || '?'}
-                </Text>
+                <Text style={styles.avatarText}>{otherUser?.displayName?.[0]?.toUpperCase() || '?'}</Text>
             </View>
             )}
-            
-            <Text style={styles.headerName}>
-            {otherUser?.displayName || 'Chat'}
-            </Text>
+            <Text style={styles.headerName}>{otherUser?.displayName || 'Chat'}</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity style={styles.optionsButton} onPress={() => setMenuVisible(true)}>
+            <Text style={styles.optionsText}>⋮</Text>
         </TouchableOpacity>
       </View>
 
@@ -273,91 +366,60 @@ export default function ChatScreen() {
         }
       />
 
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0} 
-        style={styles.keyboardView}
-      >
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0} style={styles.keyboardView}>
         <View style={styles.inputContainer}>
-            <TextInput
-            value={inputText}
-            onChangeText={setInputText}
-            placeholder="type a message..."
-            placeholderTextColor="rgba(240,228,193,0.5)"
-            style={styles.input}
-            multiline
-            maxLength={500}
-            editable={!sending}
-            />
-            <TouchableOpacity
-            onPress={handleSend}
-            disabled={!inputText.trim() || sending}
-            style={[
-                styles.sendButton,
-                (!inputText.trim() || sending) && styles.sendButtonDisabled,
-            ]}
-            >
-            {sending ? (
-                <ActivityIndicator size="small" color="#F0E4C1" />
-            ) : (
-                <Text style={styles.sendButtonText}>send</Text>
-            )}
+            <TextInput value={inputText} onChangeText={setInputText} placeholder="type a message..." placeholderTextColor="rgba(240,228,193,0.5)" style={styles.input} multiline maxLength={500} editable={!sending} />
+            <TouchableOpacity onPress={handleSend} disabled={!inputText.trim() || sending} style={[styles.sendButton, (!inputText.trim() || sending) && styles.sendButtonDisabled]}>
+            {sending ? <ActivityIndicator size="small" color={COLORS.text} /> : <Text style={styles.sendButtonText}>send</Text>}
             </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
 
-      {/* NEW MODAL USING SHARED PROFILE CARD */}
-      <Modal 
-         visible={profileModalVisible} 
-         animationType="fade" 
-         transparent={true}
-         onRequestClose={() => setProfileModalVisible(false)}
-      >
-         <TouchableOpacity 
-             style={styles.modalOverlay} 
-             activeOpacity={1} 
-             onPress={() => setProfileModalVisible(false)}
-         >
+      <Modal visible={profileModalVisible} animationType="fade" transparent={true} onRequestClose={() => setProfileModalVisible(false)}>
+         <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setProfileModalVisible(false)}>
             <View style={styles.modalCenter} onStartShouldSetResponder={() => true}>
-                 <ProfileCard 
-                    profile={otherUser} 
-                    isPreview={true} 
-                    onClose={() => setProfileModalVisible(false)} 
-                 />
+                 <ProfileCard profile={otherUser} isPreview={true} onClose={() => setProfileModalVisible(false)} />
             </View>
          </TouchableOpacity>
       </Modal>
+<CustomAlert 
+  visible={menuVisible} 
+  title="options"
+  message={otherUser?.displayName || 'Chat'}
+  buttons={[
+    { text: 'report user', style: 'destructive', onPress: handleReportPress },
+    { text: 'block user', style: 'destructive', onPress: handleBlockPress },
+    { text: 'cancel', style: 'cancel', onPress: () => setMenuVisible(false) }
+  ]}
+  onRequestClose={() => setMenuVisible(false)}
+/>
 
+      <CustomAlert visible={alert.visible} title={alert.title} message={alert.message} buttons={alert.buttons} onRequestClose={() => setAlert({ ...alert, visible: false })} />
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#111C2A' },
+  container: { flex: 1, backgroundColor: COLORS.bg },
   keyboardView: { backgroundColor: '#0D1621' },
   loadingContainer: { flex: 1, alignItems: 'center', justifyContent: 'center' },
 
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(240,228,193,0.1)',
-    backgroundColor: '#111C2A',
-  },
+  header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: 'rgba(240,228,193,0.1)', backgroundColor: COLORS.bg },
   backButton: { paddingRight: 12 },
-  backText: { color: '#F0E4C1', fontSize: 28, fontWeight: '300' },
+  backText: { color: COLORS.text, fontSize: 28, fontWeight: '300' },
   headerProfile: { flexDirection: 'row', alignItems: 'center', flex: 1 },
   headerAvatar: { width: 36, height: 36, borderRadius: 10, backgroundColor: 'rgba(240,228,193,0.1)', marginRight: 10 },
   avatarPlaceholder: { alignItems: 'center', justifyContent: 'center' },
   avatarText: { color: 'rgba(240,228,193,0.6)', fontSize: 16, fontWeight: '700' },
-  headerName: { color: '#F0E4C1', fontSize: 18, fontWeight: '700', textTransform: 'lowercase' },
+  headerName: { color: COLORS.text, fontSize: 18, fontWeight: '700', textTransform: 'lowercase' },
+
+  optionsButton: { paddingLeft: 10, paddingRight: 5 },
+  optionsText: { color: COLORS.text, fontSize: 24, fontWeight: 'bold' },
 
   messagesList: { padding: 16, flexGrow: 1 },
 
   emptyContainer: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 60 },
-  emptyText: { color: '#F0E4C1', fontSize: 16, fontWeight: '700', marginBottom: 8, textTransform: 'lowercase' },
+  emptyText: { color: COLORS.text, fontSize: 16, fontWeight: '700', marginBottom: 8, textTransform: 'lowercase' },
   emptyHint: { color: 'rgba(240,228,193,0.7)', fontSize: 14, textTransform: 'lowercase' },
 
   messageContainer: { marginBottom: 8, maxWidth: '75%' },
@@ -365,24 +427,23 @@ const styles = StyleSheet.create({
   theirMessageContainer: { alignSelf: 'flex-start' },
 
   messageBubble: { paddingHorizontal: 14, paddingVertical: 10, borderRadius: 16 },
-  myMessageBubble: { backgroundColor: '#511619', borderBottomRightRadius: 4 },
+  myMessageBubble: { backgroundColor: COLORS.button, borderBottomRightRadius: 4 },
   theirMessageBubble: { backgroundColor: 'rgba(240,228,193,0.12)', borderBottomLeftRadius: 4 },
 
   messageText: { fontSize: 15, lineHeight: 20 },
-  myMessageText: { color: '#F0E4C1' },
-  theirMessageText: { color: '#F0E4C1' },
+  myMessageText: { color: COLORS.text },
+  theirMessageText: { color: COLORS.text },
 
   messageTime: { fontSize: 10, marginTop: 4, opacity: 0.7 },
-  myMessageTime: { color: '#F0E4C1', textAlign: 'right' },
-  theirMessageTime: { color: '#F0E4C1', textAlign: 'left' },
+  myMessageTime: { color: COLORS.text, textAlign: 'right' },
+  theirMessageTime: { color: COLORS.text, textAlign: 'left' },
 
   inputContainer: { flexDirection: 'row', padding: 12, backgroundColor: '#0D1621', borderTopWidth: 1, borderTopColor: 'rgba(240,228,193,0.1)', alignItems: 'flex-end' },
-  input: { flex: 1, backgroundColor: 'rgba(240,228,193,0.08)', borderRadius: 20, paddingHorizontal: 16, paddingVertical: 10, paddingTop: 10, color: '#F0E4C1', fontSize: 15, maxHeight: 100, marginRight: 8, borderWidth: 1, borderColor: 'rgba(240,228,193,0.15)' },
-  sendButton: { backgroundColor: '#511619', paddingHorizontal: 20, paddingVertical: 10, borderRadius: 20, justifyContent: 'center', alignItems: 'center', minWidth: 70 },
+  input: { flex: 1, backgroundColor: 'rgba(240,228,193,0.08)', borderRadius: 20, paddingHorizontal: 16, paddingVertical: 10, paddingTop: 10, color: COLORS.text, fontSize: 15, maxHeight: 100, marginRight: 8, borderWidth: 1, borderColor: 'rgba(240,228,193,0.15)' },
+  sendButton: { backgroundColor: COLORS.button, paddingHorizontal: 20, paddingVertical: 10, borderRadius: 20, justifyContent: 'center', alignItems: 'center', minWidth: 70 },
   sendButtonDisabled: { opacity: 0.4 },
-  sendButtonText: { color: '#F0E4C1', fontWeight: '700', fontSize: 14, textTransform: 'lowercase' },
+  sendButtonText: { color: COLORS.text, fontWeight: '700', fontSize: 14, textTransform: 'lowercase' },
 
-  // MODAL STYLES
   modalOverlay: { flex: 1, backgroundColor: 'rgba(17,28,42,0.95)', justifyContent: 'center', alignItems: 'center' },
   modalCenter: { justifyContent: 'center', alignItems: 'center' },
-});
+})

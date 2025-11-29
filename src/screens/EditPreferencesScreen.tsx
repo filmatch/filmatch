@@ -27,16 +27,14 @@ const { width, height } = Dimensions.get('window');
 
 type StepKey = 'favorites' | 'recent' | 'genres';
 
-// --- NEW PROPS DEFINITION ---
+// --- UPDATED PROPS DEFINITION (Optional) ---
 type EditPreferencesScreenProps = {
-  onComplete: () => void;
-  onBack: () => void;
+  onComplete?: () => void;
+  onBack?: () => void;
 };
 // ----------------------------
 
-// Update the component signature to accept the new props
 export default function EditPreferencesScreen({ onComplete, onBack }: EditPreferencesScreenProps) {
-  // 1. RE-ENABLED NAVIGATION HERE
   const navigation = useNavigation(); 
   const starFontFamily = Platform.select({ ios: 'System', android: 'sans-serif' });
 
@@ -182,7 +180,7 @@ export default function EditPreferencesScreen({ onComplete, onBack }: EditPrefer
     genreRatings.some((rating) => rating.genre === genre && rating.rating > 0)
   );
 
-  // Updated saveChanges to use onComplete prop
+  // Updated saveChanges to check for onComplete
  const saveChanges = async () => {
     if (favorites.length !== 4) {
       return Alert.alert('incomplete', `please select exactly 4 favorite movies (you have ${favorites.length})`);
@@ -210,9 +208,10 @@ export default function EditPreferencesScreen({ onComplete, onBack }: EditPrefer
         { 
           text: 'ok', 
           onPress: () => {
-            onComplete();
-            // 2. FORCE NAVIGATION BACK HERE
-            if (navigation.canGoBack()) {
+            // FIX: Check if onComplete exists, otherwise just go back
+            if (onComplete) {
+              onComplete();
+            } else if (navigation.canGoBack()) {
               navigation.goBack();
             }
           } 
@@ -225,7 +224,6 @@ export default function EditPreferencesScreen({ onComplete, onBack }: EditPrefer
     }
   };
 
-  // Fixed goNext dependencies and logic
   const goNext = useCallback(() => {
     if (stepIndex === 0 && !canContinueFavorites) {
       return Alert.alert('incomplete', `you need to add ${4 - favorites.length} more favorite(s)`);
@@ -257,7 +255,6 @@ export default function EditPreferencesScreen({ onComplete, onBack }: EditPrefer
     saveChanges
   ]);
 
-  // Updated goBack to use onBack prop
   const goBack = useCallback(() => {
     if (stepIndex > 0) {
       const prev = stepIndex - 1;
@@ -267,7 +264,12 @@ export default function EditPreferencesScreen({ onComplete, onBack }: EditPrefer
       if (isNewUser) {
         Alert.alert('preferences required', 'you need to complete your preferences before using the app');
       } else {
-        onBack(); 
+        // FIX: Check if onBack exists, otherwise navigation.goBack()
+        if (onBack) {
+          onBack(); 
+        } else if (navigation.canGoBack()) {
+          navigation.goBack();
+        }
       }
     }
   }, [stepIndex, onBack, isNewUser]); 
@@ -316,7 +318,6 @@ export default function EditPreferencesScreen({ onComplete, onBack }: EditPrefer
     setTempRating(0);
   };
 
-  // The 'id' parameter is correctly defined as string here, but calling code needs to ensure the argument is a string.
   const removeRecentWatch = (id: string) => setRecentWatches((prev) => prev.filter((w) => w.id !== id));
 
   const updateRecentRating = (id: string, rating: number) =>
@@ -363,7 +364,14 @@ export default function EditPreferencesScreen({ onComplete, onBack }: EditPrefer
             <Text style={s.backText}>← back</Text>
           </TouchableOpacity>
         ) : (
-          <View style={{ width: 60 }} />
+          // If we are on step 1, show a back button IF we are not a new user (i.e. coming from Settings)
+          !isNewUser ? (
+             <TouchableOpacity onPress={goBack} style={s.backButton}>
+                <Text style={s.backText}>← settings</Text>
+             </TouchableOpacity>
+          ) : (
+             <View style={{ width: 60 }} />
+          )
         )}
         <Text style={s.headerTitle}>edit preferences</Text>
         <View style={{ width: 60 }} />

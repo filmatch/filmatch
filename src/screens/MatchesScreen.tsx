@@ -10,14 +10,13 @@ import {
   ScrollView,
   TextInput,
   Modal,
-  Alert,
   ActivityIndicator,
   RefreshControl,
   Dimensions,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { StatusBar } from 'expo-status-bar';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useIsFocused } from '@react-navigation/native';
 import { 
   collection, 
   query, 
@@ -26,18 +25,21 @@ import {
   getDocs, 
   doc, 
   deleteDoc, 
+  updateDoc,
+  arrayUnion,
+  arrayRemove,
   getFirestore, 
   getDoc 
 } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
 
-// IMPORT SERVICES
 import TMDbService from '../services/TMDbService';
-import ProfileCard from '../components/ProfileCard'; // <--- SHARED COMPONENT
+import ProfileCard from '../components/ProfileCard';
+import CustomAlert from '../components/CustomAlert';
+import { COLORS } from '../theme';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
-// Types (Preserved)
 type NewMatch = {
   uid: string;
   name: string;
@@ -60,7 +62,7 @@ type ChatRow = {
   lastMsg: string;
   lastMessageAt: number;
   lastSenderId?: string;
-  unread?: number;
+  unread?: boolean;
   otherUserId: string;
 };
 
@@ -78,6 +80,7 @@ const fmtTime = (ts: number) => {
 
 export default function MatchesScreen() {
   const navigation = useNavigation<any>();
+  const isFocused = useIsFocused();
   const auth = getAuth();
   const db = getFirestore();
   const currentUser = auth.currentUser;
@@ -85,64 +88,88 @@ export default function MatchesScreen() {
   const [newMatches, setNewMatches] = useState<NewMatch[]>([]);
   const [chats, setChats] = useState<ChatRow[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
-  const [modalOpen, setModalOpen] = useState(false);
-  const [selected, setSelected] = useState<NewMatch | null>(null);
+  
+  const [profileModalOpen, setProfileModalOpen] = useState(false);
+  const [selectedMatch, setSelectedMatch] = useState<NewMatch | null>(null);
+  const [menuChat, setMenuChat] = useState<ChatRow | null>(null);
+
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [blockedUserIds, setBlockedUserIds] = useState<Set<string>>(new Set());
+
+  const [alert, setAlert] = useState({ visible: false, title: '', message: '', buttons: [] });
 
   useEffect(() => {
-    loadMatches();
-    
+    if (!currentUser) return;
+    const blocksRef = collection(db, 'user_blocks');
+    const q = query(blocksRef, where('blockerId', '==', currentUser.uid));
+    const unsubscribeBlocks = onSnapshot(q, (snapshot) => {
+      const newBlocks = new Set<string>();
+      snapshot.forEach(doc => { 
+        newBlocks.add(doc.data().blockedId); 
+      });
+      setBlockedUserIds(newBlocks);
+    });
+    return () => unsubscribeBlocks();
+  }, [currentUser]);
+
+  useEffect(() => {
     if (!currentUser) {
       setLoading(false);
       return;
     }
     
-    // Listen for Chats
+    // Only load matches if the screen is focused to ensure fresh data
+    if (isFocused) {
+      loadMatches();
+    }
+
     const chatsRef = collection(db, 'chats');
-    const chatsQ = query(
-      chatsRef,
-      where('participants', 'array-contains', currentUser.uid)
-    );
-    
-    const unsubscribe = onSnapshot(chatsQ, async (snapshot) => {
-        const chatRows: ChatRow[] = [];
-        for (const docSnap of snapshot.docs) {
-          const data = docSnap.data();
-          const otherUserId = data.participants.find((id: string) => id !== currentUser.uid);
-          if (!otherUserId) continue;
+    const chatsQ = query(chatsRef, where('participants', 'array-contains', currentUser.uid));
+    const unsubscribeChats = onSnapshot(chatsQ, async (snapshot) => {
+      const chatRows: ChatRow[] = [];
+      for (const docSnap of snapshot.docs) {
+        const data = docSnap.data();
+        const otherUserId = data.participants.find((id: string) => id !== currentUser.uid);
+        if (!otherUserId) continue;
+        if (blockedUserIds.has(otherUserId)) continue;
 
-          try {
-            const otherUserProfileSnap = await getDoc(doc(db, 'users', otherUserId));
-            if (otherUserProfileSnap.exists()) {
-                const profile = otherUserProfileSnap.data();
-                chatRows.push({
-                    id: docSnap.id,
-                    chatId: docSnap.id,
-                    name: profile.displayName || 'unknown',
-                    avatar: profile.photos?.[0],
-                    lastMsg: data.lastMessage || 'no messages yet',
-                    lastMessageAt: data.lastMessageTime?.toMillis() || data.createdAt?.toMillis() || Date.now(),
-                    lastSenderId: data.lastSenderId,
-                    unread: 0,
-                    otherUserId,
-                });
-            }
-          } catch (err) {}
+        try {
+          const otherUserProfileSnap = await getDoc(doc(db, 'users', otherUserId));
+          if (otherUserProfileSnap.exists()) {
+            const profile = otherUserProfileSnap.data();
+            const isLastSenderMe = data.lastSenderId === currentUser.uid;
+            const explicitlyUnread = data.markedUnreadBy?.includes(currentUser.uid);
+            const readBy = data.readBy || [];
+
+            const isUnread = (!isLastSenderMe && !readBy.includes(currentUser.uid)) || explicitlyUnread;
+            
+            chatRows.push({
+              id: docSnap.id,
+              chatId: docSnap.id,
+              name: profile.displayName || 'unknown',
+              avatar: profile.photos?.[0],
+              lastMsg: data.lastMessage || 'no messages yet',
+              lastMessageAt: data.lastMessageTime?.toMillis() || data.createdAt?.toMillis() || Date.now(),
+              lastSenderId: data.lastSenderId,
+              unread: isUnread,
+              otherUserId,
+            });
+          }
+        } catch (err) {
+          console.log('Error fetching chat user profile:', err);
         }
-        // Sort chats by newest first
-        chatRows.sort((a, b) => b.lastMessageAt - a.lastMessageAt);
-        setChats(chatRows);
-      });
-
-    return () => unsubscribe();
-  }, [currentUser]);
+      }
+      chatRows.sort((a, b) => b.lastMessageAt - a.lastMessageAt);
+      setChats(chatRows);
+      setLoading(false);
+    });
+    return () => unsubscribeChats();
+  }, [currentUser, blockedUserIds, isFocused]);
 
   const loadMatches = async (isRefresh = false) => {
     try {
       if (isRefresh) setRefreshing(true);
-      else setLoading(true);
-
       if (!currentUser) return;
 
       const matchesRef = collection(db, 'matches');
@@ -158,18 +185,17 @@ export default function MatchesScreen() {
       const matchProfiles: NewMatch[] = [];
 
       for (const matchedUserId of matchedUserIds) {
+        if (blockedUserIds.has(matchedUserId)) continue;
         try {
           const snap = await getDoc(doc(db, 'users', matchedUserId));
           if (snap.exists()) {
             const matchedProfile = snap.data();
-            
-            // Basic data structure
             matchProfiles.push({
               uid: matchedProfile.uid,
               name: matchedProfile.displayName || 'anonymous',
               age: matchedProfile.age,
               city: matchedProfile.city,
-              compatibility: 85, // You can use MatchingService.calculateCompatibility here if available
+              compatibility: 85,
               photo: matchedProfile.photos?.[0],
               photos: matchedProfile.photos || [],
               bio: matchedProfile.bio,
@@ -178,12 +204,13 @@ export default function MatchesScreen() {
               genreRatings: matchedProfile.genreRatings,
             });
           }
-        } catch (err) {}
+        } catch (err) {
+          console.log('Error fetching match profile:', err);
+        }
       }
-
       setNewMatches(matchProfiles);
     } catch (error) {
-      Alert.alert('error', 'failed to load matches');
+      console.log('Matches load error', error);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -198,69 +225,131 @@ export default function MatchesScreen() {
     return chats.filter((c) => c.name.toLowerCase().includes(q));
   }, [chats, searchQuery]);
 
-  const onPressNewMatch = async (item: NewMatch) => {
-    // 1. Show modal immediately with existing data
-    setSelected(item);
-    setModalOpen(true);
+  const toggleReadStatus = async () => {
+    if (!currentUser || !menuChat) return;
+    try {
+      const chatRef = doc(db, 'chats', menuChat.chatId);
+      if (menuChat.unread) {
+        await updateDoc(chatRef, { 
+            markedUnreadBy: arrayRemove(currentUser.uid),
+            readBy: arrayUnion(currentUser.uid)
+        });
+      } else {
+        await updateDoc(chatRef, { markedUnreadBy: arrayUnion(currentUser.uid) });
+      }
+      setChats((prevChats) =>
+        prevChats.map((c) =>
+          c.chatId === menuChat.chatId ? { ...c, unread: !c.unread } : c
+        )
+      );
+    } catch (error) {
+      console.log('Error updating read status:', error);
+    } finally {
+      setMenuChat(null);
+    }
+  };
 
-    // 2. Fetch missing posters in the background using TMDbService
+  const handleDeleteChat = () => {
+    const chatIdToDelete = menuChat?.chatId;
+    setMenuChat(null);
+    if (!chatIdToDelete) return;
+
+    setTimeout(() => {
+      setAlert({
+        visible: true,
+        title: 'delete conversation?',
+        message: 'this cannot be undone',
+        buttons: [
+          { 
+            text: 'delete', 
+            style: 'destructive', 
+            onPress: async () => {
+              setAlert({ ...alert, visible: false });
+              try { 
+                await deleteDoc(doc(db, 'chats', chatIdToDelete)); 
+              } catch (e) { 
+                console.log('Error deleting chat:', e); 
+              }
+            }
+          },
+          { 
+            text: 'cancel', 
+            style: 'cancel', 
+            onPress: () => setAlert({ ...alert, visible: false }) 
+          }
+        ]
+      });
+    }, 200);
+  };
+
+  const onPressNewMatch = async (item: NewMatch) => {
+    setSelectedMatch(item);
+    setProfileModalOpen(true);
     const enriched = await TMDbService.enrichProfile(item);
-    
-    // 3. Update state if the modal is still open for this user
     if (enriched && enriched.uid === item.uid) {
-        setSelected(enriched);
+      setSelectedMatch({ ...enriched, compatibility: item.compatibility });
     }
   };
 
   const onStartChat = async () => {
-    if (!selected || !currentUser) return;
-    const sortedIds = [currentUser.uid, selected.uid].sort();
+    if (!selectedMatch || !currentUser) return;
+    const sortedIds = [currentUser.uid, selectedMatch.uid].sort();
     const chatId = `chat_${sortedIds[0]}_${sortedIds[1]}`;
-    setModalOpen(false);
+    setProfileModalOpen(false);
     navigation.navigate('Chat', { chatId });
   };
 
   const onRemoveMatch = () => {
-    if (!selected || !currentUser) return;
-    Alert.alert('remove match', `remove ${selected.name}?`, [
-      { text: 'cancel', style: 'cancel' },
-      {
-        text: 'remove',
-        style: 'destructive',
-        onPress: async () => {
-          try {
-            setNewMatches((prev) => prev.filter((m) => m.uid !== selected.uid));
-            setModalOpen(false);
-            const sortedIds = [currentUser.uid, selected.uid].sort();
-            const matchId = `match_${sortedIds[0]}_${sortedIds[1]}`;
-            // NOTE: This assumes match IDs are constructed deterministically. 
-            // If they are random, you might need to query for the match doc ID first.
-            await deleteDoc(doc(db, 'matches', matchId));
-          } catch (e) {}
-          setSelected(null);
+    if (!selectedMatch || !currentUser) return;
+    const uidToRemove = selectedMatch.uid;
+    const nameToRemove = selectedMatch.name;
+
+    setAlert({
+      visible: true,
+      title: 'remove match?',
+      message: `unmatch with ${nameToRemove}`,
+      buttons: [
+        { 
+          text: 'remove', 
+          style: 'destructive', 
+          onPress: async () => {
+            setAlert({ ...alert, visible: false });
+            try {
+              setNewMatches((prev) => prev.filter((m) => m.uid !== uidToRemove));
+              setProfileModalOpen(false);
+              const sortedIds = [currentUser.uid, uidToRemove].sort();
+              const matchId = `match_${sortedIds[0]}_${sortedIds[1]}`;
+              await deleteDoc(doc(db, 'matches', matchId));
+              setSelectedMatch(null);
+            } catch (e) {
+              console.log('Error removing match:', e);
+            }
+          }
         },
-      },
-    ]);
+        { 
+          text: 'cancel', 
+          style: 'cancel', 
+          onPress: () => setAlert({ ...alert, visible: false }) 
+        }
+      ]
+    });
   };
 
-  const isUnread = (chat: ChatRow) => chat.lastSenderId && chat.lastSenderId !== currentUser?.uid;
-
-  // Custom Footer for the ProfileCard
   const renderCardFooter = () => (
     <View style={styles.modalButtons}>
-        <TouchableOpacity style={[styles.modalBtn, styles.secondaryBtn]} onPress={onRemoveMatch}>
-            <Text style={styles.modalBtnText}>remove</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={[styles.modalBtn, styles.primaryBtn]} onPress={onStartChat}>
-            <Text style={styles.modalBtnText}>chat</Text>
-        </TouchableOpacity>
+      <TouchableOpacity style={[styles.modalBtn, styles.secondaryBtn]} onPress={onRemoveMatch}>
+        <Text style={styles.modalBtnText}>remove</Text>
+      </TouchableOpacity>
+      <TouchableOpacity style={[styles.modalBtn, styles.primaryBtn]} onPress={onStartChat}>
+        <Text style={styles.modalBtnText}>chat</Text>
+      </TouchableOpacity>
     </View>
   );
 
   if (loading) {
     return (
       <SafeAreaView style={styles.container}>
-        <ActivityIndicator size="large" color="#F0E4C1" />
+        <ActivityIndicator size="large" color={COLORS.text} />
       </SafeAreaView>
     );
   }
@@ -271,8 +360,8 @@ export default function MatchesScreen() {
 
       <ScrollView 
         style={{ flex: 1 }} 
-        contentContainerStyle={{ paddingBottom: 20 }}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#F0E4C1" />}
+        contentContainerStyle={{ paddingBottom: 20 }} 
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={COLORS.text} />}
       >
         {newMatches.length > 0 ? (
           <>
@@ -282,7 +371,11 @@ export default function MatchesScreen() {
               horizontal
               keyExtractor={(i) => i.uid}
               renderItem={({ item }) => (
-                <TouchableOpacity style={styles.matchTile} onPress={() => onPressNewMatch(item)} activeOpacity={0.9}>
+                <TouchableOpacity 
+                  style={styles.matchTile} 
+                  onPress={() => onPressNewMatch(item)} 
+                  activeOpacity={0.9}
+                >
                   {item.photo ? (
                     <Image source={{ uri: item.photo }} style={styles.matchPhoto} contentFit="cover" />
                   ) : (
@@ -308,23 +401,25 @@ export default function MatchesScreen() {
         )}
 
         <View style={styles.searchWrap}>
-          <TextInput
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-            placeholder="search chats…"
-            placeholderTextColor="rgba(240,228,193,0.5)"
-            style={styles.searchInput}
+          <TextInput 
+            value={searchQuery} 
+            onChangeText={setSearchQuery} 
+            placeholder="search chats…" 
+            placeholderTextColor="rgba(240,228,193,0.5)" 
+            style={styles.searchInput} 
           />
         </View>
 
         <Text style={[styles.sectionTitle, { marginTop: 6 }]}>chats</Text>
         <View style={styles.chatsList}>
           {filteredChats.map((c) => (
-            <TouchableOpacity
-              key={c.id}
-              style={styles.chatRow}
-              onPress={() => navigation.navigate('Chat', { chatId: c.chatId })}
-              activeOpacity={0.9}
+            <TouchableOpacity 
+              key={c.id} 
+              style={styles.chatRow} 
+              onPress={() => navigation.navigate('Chat', { chatId: c.chatId })} 
+              onLongPress={() => setMenuChat(c)}
+              activeOpacity={0.7} 
+              delayLongPress={500}
             >
               {c.avatar ? (
                 <Image source={{ uri: c.avatar }} style={styles.chatAvatar} contentFit="cover" />
@@ -334,82 +429,247 @@ export default function MatchesScreen() {
                 </View>
               )}
               <View style={{ flex: 1, marginRight: 8 }}>
-                <Text style={[styles.chatName, isUnread(c) && styles.boldText]} numberOfLines={1}>{c.name}</Text>
-                <Text style={[styles.chatLast, isUnread(c) && styles.boldText]} numberOfLines={1}>{c.lastMsg}</Text>
+                <Text style={[styles.chatName, c.unread && styles.boldText]} numberOfLines={1}>
+                  {c.name}
+                </Text>
+                <Text style={[styles.chatLast, c.unread && styles.boldText]} numberOfLines={1}>
+                  {c.lastMsg}
+                </Text>
               </View>
               <View style={styles.rightCol}>
                 <Text style={styles.chatTime}>{fmtTime(c.lastMessageAt)}</Text>
-                {isUnread(c) && <View style={styles.unreadDot} />}
+                {c.unread && <View style={styles.unreadDot} />}
               </View>
             </TouchableOpacity>
           ))}
         </View>
       </ScrollView>
 
-      {/* NEW MODAL USING SHARED PROFILE CARD */}
       <Modal 
-        visible={modalOpen} 
+        visible={profileModalOpen} 
         animationType="fade" 
-        transparent={true}
-        onRequestClose={() => setModalOpen(false)}
+        transparent={true} 
+        onRequestClose={() => setProfileModalOpen(false)}
       >
         <TouchableOpacity 
-            style={styles.modalOverlay} 
-            activeOpacity={1} 
-            onPress={() => setModalOpen(false)}
+          style={styles.modalOverlay} 
+          activeOpacity={1} 
+          onPress={() => setProfileModalOpen(false)}
         >
-            <View style={styles.modalCenter} onStartShouldSetResponder={() => true}>
-                 <ProfileCard 
-                    profile={selected} 
-                    footer={renderCardFooter()} 
-                 />
-            </View>
+          <View style={styles.modalCenter} onStartShouldSetResponder={() => true}>
+            <ProfileCard profile={selectedMatch} footer={renderCardFooter()} />
+          </View>
         </TouchableOpacity>
       </Modal>
+
+      <CustomAlert 
+        visible={!!menuChat} 
+        title={menuChat?.name || 'Chat'}
+        buttons={[
+          { 
+            text: menuChat?.unread ? 'mark as read' : 'mark as unread', 
+            style: 'default', 
+            onPress: toggleReadStatus 
+          },
+          { 
+            text: 'delete chat', 
+            style: 'destructive', 
+            onPress: handleDeleteChat 
+          },
+          { 
+            text: 'cancel', 
+            style: 'cancel', 
+            onPress: () => setMenuChat(null) 
+          }
+        ]}
+        onRequestClose={() => setMenuChat(null)}
+      />
+
+      <CustomAlert 
+        visible={alert.visible} 
+        title={alert.title} 
+        message={alert.message} 
+        buttons={alert.buttons} 
+        onRequestClose={() => setAlert({ ...alert, visible: false })} 
+      />
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#111C2A' },
-  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  container: { 
+    flex: 1, 
+    backgroundColor: COLORS.bg 
+  },
   
-  sectionTitle: { color: '#F0E4C1', fontSize: 18, fontWeight: '700', marginLeft: 20, marginBottom: 12, marginTop: 16, textTransform: 'lowercase' },
+  sectionTitle: { 
+    color: COLORS.text, 
+    fontSize: 18, 
+    fontWeight: '700', 
+    marginLeft: 20, 
+    marginBottom: 12, 
+    marginTop: 16, 
+    textTransform: 'lowercase' 
+  },
   
-  matchesRow: { paddingHorizontal: 16 },
-  matchTile: { width: 80, marginRight: 12, alignItems: 'center' },
-  matchPhoto: { width: 70, height: 70, borderRadius: 35, backgroundColor: '#1a2634', marginBottom: 6, borderWidth: 2, borderColor: 'rgba(240,228,193,0.2)' },
-  matchName: { color: '#F0E4C1', fontSize: 12, textAlign: 'center', textTransform: 'lowercase' },
-  compPill: { marginTop: 4, backgroundColor: '#511619', borderRadius: 10, paddingHorizontal: 8, paddingVertical: 2 },
-  compPillText: { color: '#F0E4C1', fontSize: 10, fontWeight: '700' },
+  matchesRow: { 
+    paddingHorizontal: 16 
+  },
+  matchTile: { 
+    width: 80, 
+    marginRight: 12, 
+    alignItems: 'center' 
+  },
+  matchPhoto: { 
+    width: 70, 
+    height: 70, 
+    borderRadius: 35, 
+    backgroundColor: '#1a2634', 
+    marginBottom: 6, 
+    borderWidth: 2, 
+    borderColor: COLORS.border 
+  },
+  matchName: { 
+    color: COLORS.text, 
+    fontSize: 12, 
+    textAlign: 'center', 
+    textTransform: 'lowercase' 
+  },
+  compPill: { 
+    marginTop: 4, 
+    backgroundColor: COLORS.button, 
+    borderRadius: 10, 
+    paddingHorizontal: 8, 
+    paddingVertical: 2 
+  },
+  compPillText: { 
+    color: COLORS.text, 
+    fontSize: 10, 
+    fontWeight: '700' 
+  },
 
-  searchWrap: { paddingHorizontal: 20, marginTop: 16 },
-  searchInput: { backgroundColor: 'rgba(240,228,193,0.08)', borderRadius: 12, padding: 12, color: '#F0E4C1', fontSize: 16 },
+  searchWrap: { 
+    paddingHorizontal: 20, 
+    marginTop: 16 
+  },
+  searchInput: { 
+    backgroundColor: 'rgba(240,228,193,0.08)', 
+    borderRadius: 12, 
+    padding: 12, 
+    color: COLORS.text, 
+    fontSize: 16 
+  },
 
-  chatsList: { paddingHorizontal: 20, marginTop: 8 },
-  chatRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(240,228,193,0.05)', padding: 12, borderRadius: 16, marginBottom: 8 },
-  chatAvatar: { width: 50, height: 50, borderRadius: 25, backgroundColor: '#1a2634', marginRight: 12 },
-  chatName: { color: '#F0E4C1', fontSize: 16, fontWeight: '700', textTransform: 'lowercase' },
-  chatLast: { color: 'rgba(240,228,193,0.6)', fontSize: 13, marginTop: 2 },
-  rightCol: { marginLeft: 'auto', alignItems: 'flex-end' },
-  chatTime: { color: 'rgba(240,228,193,0.4)', fontSize: 11 },
+  chatsList: { 
+    paddingHorizontal: 20, 
+    marginTop: 8 
+  },
+  chatRow: { 
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    backgroundColor: 'rgba(240,228,193,0.05)', 
+    padding: 12, 
+    borderRadius: 16, 
+    marginBottom: 8 
+  },
+  chatAvatar: { 
+    width: 50, 
+    height: 50, 
+    borderRadius: 25, 
+    backgroundColor: '#1a2634', 
+    marginRight: 12 
+  },
+  chatName: { 
+    color: COLORS.text, 
+    fontSize: 16, 
+    fontWeight: '700', 
+    textTransform: 'lowercase' 
+  },
+  chatLast: { 
+    color: 'rgba(240,228,193,0.6)', 
+    fontSize: 13, 
+    marginTop: 2 
+  },
+  rightCol: { 
+    marginLeft: 'auto', 
+    alignItems: 'flex-end' 
+  },
+  chatTime: { 
+    color: 'rgba(240,228,193,0.4)', 
+    fontSize: 11 
+  },
   
-  unreadDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#511619', marginTop: 6 },
-  boldText: { fontWeight: 'bold', color: '#F0E4C1' },
+  unreadDot: { 
+    width: 8, 
+    height: 8, 
+    borderRadius: 4, 
+    backgroundColor: COLORS.button, 
+    marginTop: 6 
+  },
+  boldText: { 
+    fontWeight: 'bold', 
+    color: COLORS.text 
+  },
 
-  emptyMatches: { padding: 20, alignItems: 'center' },
-  emptyText: { color: '#F0E4C1', fontWeight: 'bold' },
-  emptyHint: { color: 'rgba(240,228,193,0.5)', fontSize: 12, marginTop: 4 },
+  emptyMatches: { 
+    padding: 20, 
+    alignItems: 'center' 
+  },
+  emptyText: { 
+    color: COLORS.text, 
+    fontWeight: 'bold' 
+  },
+  emptyHint: { 
+    color: 'rgba(240,228,193,0.5)', 
+    fontSize: 12, 
+    marginTop: 4 
+  },
 
-  photoPlaceholder: { alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(240,228,193,0.1)' },
-  placeholderText: { color: 'rgba(240,228,193,0.3)', fontSize: 24, fontWeight: 'bold' },
+  photoPlaceholder: { 
+    alignItems: 'center', 
+    justifyContent: 'center', 
+    backgroundColor: 'rgba(240,228,193,0.1)' 
+  },
+  placeholderText: { 
+    color: 'rgba(240,228,193,0.3)', 
+    fontSize: 24, 
+    fontWeight: 'bold' 
+  },
 
-  // MODAL STYLES
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(17,28,42,0.95)', justifyContent: 'center', alignItems: 'center' },
-  modalCenter: { justifyContent: 'center', alignItems: 'center' },
-  modalButtons: { flexDirection: 'row', gap: 12, marginTop: 10, width: '100%' },
-  modalBtn: { flex: 1, paddingVertical: 14, borderRadius: 12, alignItems: 'center', borderWidth: 1 },
-  primaryBtn: { backgroundColor: '#511619', borderColor: '#511619' },
-  secondaryBtn: { borderColor: 'rgba(240,228,193,0.3)' },
-  modalBtnText: { color: '#F0E4C1', fontWeight: '700', fontSize: 16, textTransform: 'lowercase' },
+  modalOverlay: { 
+    flex: 1, 
+    backgroundColor: 'rgba(17,28,42,0.95)', 
+    justifyContent: 'center', 
+    alignItems: 'center' 
+  },
+  modalCenter: { 
+    justifyContent: 'center', 
+    alignItems: 'center' 
+  },
+  modalButtons: { 
+    flexDirection: 'row', 
+    gap: 12, 
+    marginTop: 10, 
+    width: '100%' 
+  },
+  modalBtn: { 
+    flex: 1, 
+    paddingVertical: 14, 
+    borderRadius: 12, 
+    alignItems: 'center', 
+    borderWidth: 1 
+  },
+  primaryBtn: { 
+    backgroundColor: COLORS.button, 
+    borderColor: COLORS.button 
+  },
+  secondaryBtn: { 
+    borderColor: 'rgba(240,228,193,0.3)' 
+  },
+  modalBtnText: { 
+    color: COLORS.text, 
+    fontWeight: '700', 
+    fontSize: 16, 
+    textTransform: 'lowercase' 
+  },
 });

@@ -35,13 +35,12 @@ export default function WelcomeScreen({ onGetStarted }: Props) {
   return (
     <View style={s.root}>
       <Text style={s.brand}>filmatch</Text>
-      <Text style={s.tag}>match people by taste, not looks</Text>
+      <Text style={s.tag}>an app for people who talk through the credits.</Text>
 
       <View style={s.card}>
         <Text style={s.h1}>welcome to filmatch</Text>
         <Text style={s.h2}>
-          discover your perfect movie companion by{'\n'}
-          sharing your taste in films
+          connect through your taste in films.
         </Text>
 
         {/* 5. Update onPress to use our new handler */}

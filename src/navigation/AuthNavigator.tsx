@@ -12,7 +12,9 @@ import AuthScreen from '../components/AuthScreen';
 import SetUpProfileScreen from '../screens/SetUpProfileScreen';
 import EditPreferencesScreen from '../screens/EditPreferencesScreen';
 import MainApp from './MainApp';
-import KVKKScreen from '../screens/KVKKScreen'; // <--- Imported correctly
+import KVKKScreen from '../screens/KVKKScreen'; 
+import SettingsScreen from '../screens/SettingsScreen';
+import BlockedUsersScreen from '../screens/BlockedUsersScreen';
 
 const Stack = createStackNavigator();
 
@@ -95,7 +97,12 @@ export default function AuthNavigator() {
         </Stack.Screen>
       ) : (
         // --- LOGGED IN STATE ---
-        <Stack.Screen name="MainApp" component={MainApp} />
+        <>
+          <Stack.Screen name="MainApp" component={MainApp} />
+          {/* MOVED HERE: These screens are only reachable when logged in */}
+          <Stack.Screen name="Settings" component={SettingsScreen} />
+          <Stack.Screen name="BlockedUsers" component={BlockedUsersScreen} />
+        </>
       )}
     </Stack.Navigator>
   );

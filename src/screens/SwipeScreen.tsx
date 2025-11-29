@@ -1,3 +1,4 @@
+// src/screens/SwipeScreen.tsx
 import React, { useMemo, useRef, useState, useEffect } from "react";
 import {
   SafeAreaView,
@@ -27,6 +28,7 @@ import { getAuth } from 'firebase/auth';
 // SERVICES
 import { MatchingService } from '../services/MatchingService';
 import { FirestoreService } from '../services/FirestoreService';
+import { NotificationService } from '../services/NotificationService'; // IMPORT ADDED
 
 // --- CONFIG ---
 const { width, height } = Dimensions.get("window");
@@ -164,7 +166,7 @@ export default function SwipeScreen() {
       } else {
         // 3. CALCULATE REAL COMPATIBILITY & SORT
         const processedMatches = matches.map(p => {
-            // FIX: Use the actual service calculation instead of hardcoded 85
+            // Use the actual service calculation
             const realScore = MatchingService.calculateCompatibility(myProfile, p);
 
             return {
@@ -223,21 +225,32 @@ export default function SwipeScreen() {
           setShowMatchIndicator(true);
           setTimeout(() => setShowMatchIndicator(false), 2000);
           
+          // 1. PREPARE IDs
+          const sortedIds = [currentUser.uid, profile.uid].sort();
+          const chatId = `chat_${sortedIds[0]}_${sortedIds[1]}`;
+
+          // 2. CREATE MATCH DOC WITH CORRECT FIELDS FOR MATCHES SCREEN
           await addDoc(collection(db, 'matches'), {
             users: [currentUser.uid, profile.uid],
+            user1Id: currentUser.uid, // Required for MatchesScreen query
+            user2Id: profile.uid,     // Required for MatchesScreen query
             createdAt: serverTimestamp(),
-            lastMessage: null
+            lastMessage: null,
+            chatId: chatId
           });
 
-          await addDoc(collection(db, 'notifications'), {
-            userId: currentUser.uid,
-            type: 'match',
-            title: 'new match',
-            message: `you matched with ${profile.displayName}`,
-            read: false,
-            createdAt: serverTimestamp(),
-            data: { fromUserId: profile.uid }
-          });
+          // 3. GET CURRENT USER DETAILS FOR NOTIFICATION
+          // We already have 'profile' (the other person), we need 'myProfile' info for the notification sent to them
+          const myProfileSnap = await FirestoreService.getUserProfile(currentUser.uid);
+          const myName = myProfileSnap?.displayName || "Someone";
+          const myPhoto = myProfileSnap?.photos?.[0];
+
+          // 4. CREATE NOTIFICATIONS FOR BOTH USERS
+          await NotificationService.createMatchNotifications(
+             currentUser.uid, myName, myPhoto,
+             profile.uid, profile.displayName, profile.photos?.[0],
+             chatId
+          );
         }
       } else {
         // --- PASS LOGIC ---
