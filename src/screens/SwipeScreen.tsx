@@ -28,7 +28,7 @@ import { getAuth } from 'firebase/auth';
 // SERVICES
 import { MatchingService } from '../services/MatchingService';
 import { FirestoreService } from '../services/FirestoreService';
-import { NotificationService } from '../services/NotificationService'; // IMPORT ADDED
+import { NotificationService } from '../services/NotificationService';
 
 // --- CONFIG ---
 const { width, height } = Dimensions.get("window");
@@ -36,8 +36,8 @@ const CARD_W = Math.min(width * 0.90, 400);
 const CARD_H = Math.min(height * 0.74, 680); 
 
 // --- TYPES ---
-type Poster = { id: string; title: string; poster?: string; year?: number };
-type Recent = { id: string; title: string; year?: number; poster?: string }; 
+type Poster = { id: string; title: string; poster?: string; poster_path?: string; year?: number };
+type Recent = { id: string; title: string; year?: number; poster?: string; poster_path?: string }; 
 type GenreRating = { genre: string; rating: number };
 
 type MatchProfile = {
@@ -52,6 +52,16 @@ type MatchProfile = {
   favorites: Poster[];
   recentWatches: Recent[];
   genreRatings?: GenreRating[];
+};
+
+// --- HELPER FOR IMAGES ---
+const getImageSource = (path?: string | null) => {
+  if (!path) return null;
+  if (path.startsWith('http') || path.startsWith('file')) {
+    return { uri: path };
+  }
+  // It's a relative TMDb path, add the base URL
+  return { uri: `https://image.tmdb.org/t/p/w342${path}` };
 };
 
 // --- UI COMPONENTS ---
@@ -73,34 +83,44 @@ const GhostPoster = ({ title }: { title: string }) => (
   </View>
 );
 
-const RecentPoster = ({ poster }: { poster: string }) => (
-  <View style={styles.recentPosterContainer}>
-    <Image 
-      source={{ uri: poster }} 
-      style={styles.recentPosterImg} 
-      resizeMode="cover"
-    />
-  </View>
-);
+const RecentPoster = ({ poster }: { poster: string }) => {
+  const source = getImageSource(poster);
+  return (
+    <View style={styles.recentPosterContainer}>
+      {source && (
+        <Image 
+          source={source} 
+          style={styles.recentPosterImg} 
+          resizeMode="cover"
+        />
+      )}
+    </View>
+  );
+};
 
-const PosterTile = ({ p }: { p: Poster }) => (
-  <View style={styles.posterTile}>
-    {p.poster ? (
-      <Image 
-        source={{ uri: p.poster }} 
-        style={styles.posterImg} 
-        resizeMode="cover"
-      />
-    ) : (
-      <View style={[styles.posterImg, styles.posterPlaceholder]}>
-        <Text style={styles.posterPlaceholderText}>no{'\n'}img</Text>
-      </View>
-    )}
-    <Text style={styles.posterCaption} numberOfLines={1}>
-      {p.title.toLowerCase()}
-    </Text>
-  </View>
-);
+const PosterTile = ({ p }: { p: Poster }) => {
+  // Check both 'poster' (full url usually) and 'poster_path' (tmdb raw)
+  const source = getImageSource(p.poster || p.poster_path);
+  
+  return (
+    <View style={styles.posterTile}>
+      {source ? (
+        <Image 
+          source={source} 
+          style={styles.posterImg} 
+          resizeMode="cover"
+        />
+      ) : (
+        <View style={[styles.posterImg, styles.posterPlaceholder]}>
+          <Text style={styles.posterPlaceholderText}>no{'\n'}img</Text>
+        </View>
+      )}
+      <Text style={styles.posterCaption} numberOfLines={1}>
+        {p.title.toLowerCase()}
+      </Text>
+    </View>
+  );
+};
 
 // --- MAIN SCREEN ---
 
@@ -166,9 +186,7 @@ export default function SwipeScreen() {
       } else {
         // 3. CALCULATE REAL COMPATIBILITY & SORT
         const processedMatches = matches.map(p => {
-            // Use the actual service calculation
             const realScore = MatchingService.calculateCompatibility(myProfile, p);
-
             return {
                 ...p,
                 photos: p.photos || [],
@@ -179,9 +197,7 @@ export default function SwipeScreen() {
             } as MatchProfile;
         });
 
-        // Sort: Highest compatibility first
         processedMatches.sort((a, b) => b.compatibility - a.compatibility);
-
         setProfiles(processedMatches);
       }
 
@@ -202,7 +218,6 @@ export default function SwipeScreen() {
 
     try {
       if (direction === 1) {
-        // --- LIKE LOGIC ---
         await addDoc(collection(db, 'swipes'), {
             fromUserId: currentUser.uid,
             toUserId: profile.uid,
@@ -210,7 +225,6 @@ export default function SwipeScreen() {
             timestamp: serverTimestamp()
         });
 
-        // CHECK FOR REAL MATCH
         const swipesRef = collection(db, 'swipes');
         const q = query(
             swipesRef, 
@@ -225,27 +239,22 @@ export default function SwipeScreen() {
           setShowMatchIndicator(true);
           setTimeout(() => setShowMatchIndicator(false), 2000);
           
-          // 1. PREPARE IDs
           const sortedIds = [currentUser.uid, profile.uid].sort();
           const chatId = `chat_${sortedIds[0]}_${sortedIds[1]}`;
 
-          // 2. CREATE MATCH DOC WITH CORRECT FIELDS FOR MATCHES SCREEN
           await addDoc(collection(db, 'matches'), {
             users: [currentUser.uid, profile.uid],
-            user1Id: currentUser.uid, // Required for MatchesScreen query
-            user2Id: profile.uid,     // Required for MatchesScreen query
+            user1Id: currentUser.uid, 
+            user2Id: profile.uid,     
             createdAt: serverTimestamp(),
             lastMessage: null,
             chatId: chatId
           });
 
-          // 3. GET CURRENT USER DETAILS FOR NOTIFICATION
-          // We already have 'profile' (the other person), we need 'myProfile' info for the notification sent to them
           const myProfileSnap = await FirestoreService.getUserProfile(currentUser.uid);
           const myName = myProfileSnap?.displayName || "Someone";
           const myPhoto = myProfileSnap?.photos?.[0];
 
-          // 4. CREATE NOTIFICATIONS FOR BOTH USERS
           await NotificationService.createMatchNotifications(
              currentUser.uid, myName, myPhoto,
              profile.uid, profile.displayName, profile.photos?.[0],
@@ -253,7 +262,6 @@ export default function SwipeScreen() {
           );
         }
       } else {
-        // --- PASS LOGIC ---
         await addDoc(collection(db, 'swipes'), {
             fromUserId: currentUser.uid,
             toUserId: profile.uid,
@@ -350,6 +358,8 @@ export default function SwipeScreen() {
     );
   }
 
+  const currentPhotoSource = getImageSource(profile.photos[currentPhotoIndex]);
+
   return (
     <SafeAreaView style={styles.screen}>
       <StatusBar style="light" />
@@ -394,10 +404,10 @@ export default function SwipeScreen() {
           {profile.bio ? <Text style={styles.bio} numberOfLines={3}>{profile.bio.toLowerCase()}</Text> : null}
 
           {/* PHOTOS */}
-          {profile.photos?.length > 0 ? (
+          {profile.photos?.length > 0 && currentPhotoSource ? (
             <TouchableOpacity activeOpacity={0.95} onPress={handlePhotoTap} style={styles.photoContainer}>
               <Image 
-                source={{ uri: profile.photos[currentPhotoIndex] }} 
+                source={currentPhotoSource} 
                 style={styles.photo} 
                 resizeMode="cover"
               />
@@ -446,7 +456,8 @@ export default function SwipeScreen() {
                 contentContainerStyle={{ gap: 8 }}
               >
                 {profile.recentWatches.slice(0, 6).map((r) => {
-                    if (r.poster) return <RecentPoster key={r.id} poster={r.poster} />;
+                    const imgSource = getImageSource(r.poster || r.poster_path);
+                    if (imgSource) return <RecentPoster key={r.id} poster={r.poster || r.poster_path || ''} />;
                     return <GhostPoster key={r.id} title={r.title} />;
                 })}
               </ScrollView>

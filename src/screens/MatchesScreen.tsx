@@ -360,7 +360,7 @@ export default function MatchesScreen() {
 
       <ScrollView 
         style={{ flex: 1 }} 
-        contentContainerStyle={{ paddingBottom: 20 }} 
+        contentContainerStyle={{ paddingBottom: 20, paddingTop: 12 }} 
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={COLORS.text} />}
       >
         {newMatches.length > 0 ? (
@@ -410,7 +410,7 @@ export default function MatchesScreen() {
           />
         </View>
 
-        <Text style={[styles.sectionTitle, { marginTop: 6 }]}>chats</Text>
+        <Text style={[styles.sectionTitle, { marginTop: 24 }]}>chats</Text>
         <View style={styles.chatsList}>
           {filteredChats.map((c) => (
             <TouchableOpacity 

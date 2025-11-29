@@ -13,6 +13,15 @@ interface ProfileCardProps {
   onClose?: () => void;
 }
 
+// Helper to fix incomplete TMDb URLs
+const getImageSource = (path?: string | null) => {
+  if (!path) return null;
+  if (path.startsWith('http') || path.startsWith('file')) {
+    return { uri: path };
+  }
+  return { uri: `https://image.tmdb.org/t/p/w342${path}` };
+};
+
 const GenreText = ({ text, isLast }: { text: string, isLast: boolean }) => (
   <Text style={s.genreTextItem}>
     {text.toLowerCase()}
@@ -28,22 +37,25 @@ const GhostPoster = ({ title }: { title: string }) => (
   </View>
 );
 
-const PosterTile = ({ p }: { p: any }) => (
-  <View style={s.posterTile}>
-    {p.poster || p.poster_path ? (
-      <Image 
-        source={{ uri: p.poster || `https://image.tmdb.org/t/p/w154${p.poster_path}` }} 
-        style={s.posterImg} 
-        resizeMode="cover" 
-      />
-    ) : (
-      <View style={[s.posterImg, s.posterPlaceholder]}>
-        <Text style={s.posterPlaceholderText}>no{'\n'}img</Text>
-      </View>
-    )}
-    <Text style={s.posterCaption} numberOfLines={1}>{p.title.toLowerCase()}</Text>
-  </View>
-);
+const PosterTile = ({ p }: { p: any }) => {
+  const source = getImageSource(p.poster || p.poster_path);
+  return (
+    <View style={s.posterTile}>
+      {source ? (
+        <Image 
+          source={source} 
+          style={s.posterImg} 
+          resizeMode="cover" 
+        />
+      ) : (
+        <View style={[s.posterImg, s.posterPlaceholder]}>
+          <Text style={s.posterPlaceholderText}>no{'\n'}img</Text>
+        </View>
+      )}
+      <Text style={s.posterCaption} numberOfLines={1}>{p.title.toLowerCase()}</Text>
+    </View>
+  );
+};
 
 export default function ProfileCard({ profile, isPreview = false, footer, onClose }: ProfileCardProps) {
   const [photoIndex, setPhotoIndex] = useState(0);
@@ -52,6 +64,7 @@ export default function ProfileCard({ profile, isPreview = false, footer, onClos
 
   const photos = profile.photos || [];
   const currentPhoto = photos[photoIndex] || null;
+  const currentPhotoSource = getImageSource(currentPhoto);
 
   const handlePhotoTap = () => {
     if (photos.length > 1) {
@@ -89,9 +102,9 @@ export default function ProfileCard({ profile, isPreview = false, footer, onClos
       {profile.bio ? <Text style={s.bio} numberOfLines={3}>{profile.bio.toLowerCase()}</Text> : null}
 
       {/* PHOTOS */}
-      {photos.length > 0 ? (
+      {photos.length > 0 && currentPhotoSource ? (
         <TouchableOpacity activeOpacity={0.95} onPress={handlePhotoTap} style={s.photoContainer}>
-          <Image source={{ uri: currentPhoto! }} style={s.photo} resizeMode="cover" />
+          <Image source={currentPhotoSource} style={s.photo} resizeMode="cover" />
           {photos.length > 1 && (
             <View style={s.photoIndicatorContainer}>
               {photos.map((_: any, i: number) => (
@@ -135,9 +148,10 @@ export default function ProfileCard({ profile, isPreview = false, footer, onClos
           <Text style={s.sectionTitle}>recents</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
             {profile.recentWatches.slice(0, 6).map((r: any, i: number) => {
-              if (r.poster) return (
+              const imgSource = getImageSource(r.poster || r.poster_path);
+              if (imgSource) return (
                  <View key={i} style={{width: 52, height: 78, borderRadius: 6, overflow: 'hidden'}}>
-                    <Image source={{ uri: r.poster }} style={{width: '100%', height: '100%'}} />
+                    <Image source={imgSource} style={{width: '100%', height: '100%'}} />
                  </View>
               );
               return <GhostPoster key={i} title={r.title} />;

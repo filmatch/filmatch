@@ -414,6 +414,7 @@ const styles = StyleSheet.create({
   },
   settingsButtonText: { color: COLORS.text, fontSize: 16, fontWeight: '700', textTransform: 'lowercase' },
   
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(17,28,42,0.95)', justifyContent: 'center', alignItems: 'center' },
+  // UPDATED: Used COLORS.bg for 100% opacity
+  modalOverlay: { flex: 1, backgroundColor: COLORS.bg, justifyContent: 'center', alignItems: 'center' },
   modalCenter: { justifyContent: 'center', alignItems: 'center' },
 });
