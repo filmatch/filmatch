@@ -20,7 +20,8 @@ import { useNavigation } from "@react-navigation/native";
 import { FirebaseAuthService } from "../services/FirebaseAuthService";
 import { FirestoreService } from "../services/FirestoreService";
 import * as ImagePicker from 'expo-image-picker';
-
+import { TextModerationService } from "../services/TextModerationService";
+import { CloudinaryService } from "../services/CloudinaryService";
 import DraggableFlatList, {
   RenderItemParams,
 } from 'react-native-draggable-flatlist';
@@ -192,11 +193,13 @@ export default function EditProfileScreen() {
     const user = FirebaseAuthService.getCurrentUser();
     if (!user) return;
     setUploading(true);
+    
     try {
-      // ✅ CLOUDINARY LOGIC HERE
-      const downloadURL = await uploadToCloudinary(localUri);
+      // Use the new service that checks for nudity/violence
+      const downloadURL = await CloudinaryService.uploadImage(localUri);
       
-      if (!downloadURL) throw new Error("Upload returned no URL");
+      // If null, it was rejected or failed
+      if (!downloadURL) return; 
 
       setDraft((prev) => {
         const newPhotos = [...prev.photos];
@@ -206,11 +209,9 @@ export default function EditProfileScreen() {
       });
     } catch (e) { 
       console.error(e);
-      Alert.alert("Error", "Upload failed. Please try again."); 
     } 
     finally { setUploading(false); }
   };
-
   const showPhotoOptions = () => {
     Alert.alert("Add Photo", "Choose an option", [
       { text: "Take Photo", onPress: () => handleTakePhoto() },
@@ -235,6 +236,14 @@ export default function EditProfileScreen() {
   const save = async () => {
     const user = FirebaseAuthService.getCurrentUser();
     if (!user) return;
+
+    // 1. Check for Profanity before sending to Firestore
+    const errorMsg = TextModerationService.validateProfileFields(draft.displayName, draft.bio);
+    if (errorMsg) {
+      Alert.alert("Content Warning", errorMsg);
+      return;
+    }
+
     setSaving(true);
     try {
       await FirestoreService.saveUserProfile(user.uid, {
@@ -243,8 +252,8 @@ export default function EditProfileScreen() {
         city: draft.city.trim(),
         gender: draft.gender,
         genderPreferences: draft.interestedIn,
-        relationshipIntent: draft.intent, // <--- SAVE INTENT
-        bio: draft.bio.trim(),
+        relationshipIntent: draft.intent,
+        bio: draft.bio.trim(), // You could use TextModerationService.cleanText(draft.bio) here to auto-star bad words
         photos: draft.photos,
       });
       Alert.alert("Saved", "Profile updated.", [{ text: "OK", onPress: () => navigation.goBack() }]);

@@ -6,6 +6,8 @@ import {
 import * as ImagePicker from 'expo-image-picker';
 import { FirebaseAuthService } from '../services/FirebaseAuthService';
 import { FirestoreService } from '../services/FirestoreService';
+import { TextModerationService } from "../services/TextModerationService";
+import { CloudinaryService } from "../services/CloudinaryService";
 
 const C = { bg: '#111C2A', card: '#121D2B', text: '#F0E4C1', dim: 'rgba(240,228,193,0.75)', accent: '#511619' };
 
@@ -125,8 +127,17 @@ export default function SetUpProfileScreen({ onComplete }: { onComplete: () => v
     setPhotos(prev => prev.filter(x => x !== uri));
   };
 
-  const save = async () => {
+const save = async () => {
     if (!canContinue) return;
+
+    // 1. Validate Text
+    const errorMsg = TextModerationService.validateProfileFields("User", bio); // passing "User" as dummy name since this screen doesn't seem to set Display Name? 
+    // If you add a display name input here, validate it too.
+    if (errorMsg && errorMsg.includes("bio")) {
+       Alert.alert("Content Warning", "Your bio contains inappropriate language.");
+       return;
+    }
+
     try {
       setSaving(true);
       setUploading(true);
@@ -139,15 +150,23 @@ export default function SetUpProfileScreen({ onComplete }: { onComplete: () => v
       console.log('Uploading', photos.length, 'photos to Cloudinary...');
       const photoUrls: string[] = [];
       
-      // ✅ CLOUDINARY LOGIC HERE
+      // 2. Use new Cloudinary Service
       for (let i = 0; i < photos.length; i++) {
-        const url = await uploadToCloudinary(photos[i]);
-        if (url) photoUrls.push(url);
+        // If the photo is already a remote URL (cloudinary), keep it. 
+        // If it's a local file (file://), upload it.
+        if (photos[i].startsWith('http')) {
+            photoUrls.push(photos[i]);
+        } else {
+            const url = await CloudinaryService.uploadImage(photos[i]);
+            if (url) photoUrls.push(url);
+            else {
+                // If upload returns null (rejected), stop the process
+                setSaving(false);
+                setUploading(false);
+                return; 
+            }
+        }
       }
-      
-      console.log('Saving profile...');
-      await FirestoreService.createUserProfileIfMissing(u.uid);
-      
       const profileData: any = {
         age: ageNum,
         gender,
