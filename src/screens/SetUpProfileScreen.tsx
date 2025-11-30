@@ -10,6 +10,7 @@ import { FirestoreService } from '../services/FirestoreService';
 const C = { bg: '#111C2A', card: '#121D2B', text: '#F0E4C1', dim: 'rgba(240,228,193,0.75)', accent: '#511619' };
 
 const GENDERS = ['female', 'male', 'nonbinary', 'other'] as const;
+const INTENTS = ['friends', 'romance'] as const; // <--- NEW CONSTANT
 
 const CITY_LIST = [
   'adana','adıyaman','afyonkarahisar','ağrı','amasya','ankara','antalya','artvin','aydın',
@@ -63,6 +64,7 @@ export default function SetUpProfileScreen({ onComplete }: { onComplete: () => v
   const [age, setAge] = useState<string>('');
   const [gender, setGender] = useState<string>('');
   const [genderPreferences, setGenderPreferences] = useState<string[]>([]);
+  const [intent, setIntent] = useState<string[]>([]); // <--- NEW STATE
   const [city, setCity] = useState<string>('');
   const [bio, setBio] = useState<string>('');
   const [photos, setPhotos] = useState<string[]>([]);
@@ -74,15 +76,24 @@ export default function SetUpProfileScreen({ onComplete }: { onComplete: () => v
   const ageValid = Number.isFinite(ageNum) && ageNum >= 18 && ageNum <= 100;
   const genderValid = !!gender;
   const genderPrefValid = genderPreferences.length > 0;
+  const intentValid = intent.length > 0; // <--- NEW VALIDATION
   const cityValid = city.trim().length > 0;
   const photosValid = photos.length > 0;
   const bioRemaining = 160 - bio.length;
 
-  const canContinue = ageValid && genderValid && genderPrefValid && cityValid && photosValid && !saving;
+  // Added intentValid to canContinue
+  const canContinue = ageValid && genderValid && genderPrefValid && intentValid && cityValid && photosValid && !saving;
 
   const toggleGenderPref = (g: string) => {
     setGenderPreferences(prev =>
       prev.includes(g) ? prev.filter(x => x !== g) : [...prev, g]
+    );
+  };
+
+  // <--- NEW TOGGLE FUNCTION
+  const toggleIntent = (i: string) => {
+    setIntent(prev =>
+      prev.includes(i) ? prev.filter(x => x !== i) : [...prev, i]
     );
   };
 
@@ -141,6 +152,7 @@ export default function SetUpProfileScreen({ onComplete }: { onComplete: () => v
         age: ageNum,
         gender,
         genderPreferences,
+        relationshipIntent: intent, // <--- SAVING INTENT
         city: city.trim(),
         photos: photoUrls,
         hasProfile: true,
@@ -201,6 +213,22 @@ export default function SetUpProfileScreen({ onComplete }: { onComplete: () => v
               style={[s.chip, genderPreferences.includes(g) && s.chipOn]}
             >
               <Text style={[s.chipTxt, genderPreferences.includes(g) && s.chipTxtOn]}>{g}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        {/* --- NEW INTENT SECTION --- */}
+        <Text style={[s.label, { marginTop: 16 }]}>
+          i'm here for <Text style={s.dim}>(pick at least 1)</Text>
+        </Text>
+        <View style={s.chips}>
+          {INTENTS.map((i) => (
+            <TouchableOpacity
+              key={i}
+              onPress={() => toggleIntent(i)}
+              style={[s.chip, intent.includes(i) && s.chipOn]}
+            >
+              <Text style={[s.chipTxt, intent.includes(i) && s.chipTxtOn]}>{i}</Text>
             </TouchableOpacity>
           ))}
         </View>

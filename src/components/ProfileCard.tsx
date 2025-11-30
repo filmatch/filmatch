@@ -69,6 +69,9 @@ export default function ProfileCard({ profile, isPreview = false, footer, onClos
   const photos = profile.photos || [];
   const currentPhoto = photos[photoIndex] || null;
   const currentPhotoSource = getImageSource(currentPhoto);
+  
+  // <--- EXTRACT INTENT
+  const intentDisplay = (profile.relationshipIntent || []).join(' • ');
 
   const handlePhotoTap = () => {
     if (photos.length > 1) {
@@ -96,6 +99,8 @@ export default function ProfileCard({ profile, isPreview = false, footer, onClos
             {profile.age ? `, ${profile.age}` : ""}
             {profile.city ? ` • ${profile.city.toLowerCase()}` : ""}
           </Text>
+          {/* <--- DISPLAY INTENT HERE */}
+          {intentDisplay ? <Text style={s.intentText}>{intentDisplay}</Text> : null}
         </View>
         <View style={s.compBadge}>
           <Text style={s.compText}>{isPreview ? 'you' : `${profile.compatibility || 0}%`}</Text>
@@ -185,7 +190,9 @@ const s = StyleSheet.create({
     borderRadius: 20, borderWidth: 1, borderColor: "rgba(240,228,193,0.18)", padding: 16, 
   },
   headerRow: { flexDirection: "row", alignItems: "center", marginBottom: 6 },
-  name: { color: "#F0E4C1", fontSize: 20, fontWeight: "800", textTransform: "lowercase" }, 
+  name: { color: "#F0E4C1", fontSize: 20, fontWeight: "800", textTransform: "lowercase" },
+  // <--- NEW STYLE FOR INTENT
+  intentText: { color: "#F0E4C1", fontSize: 12, opacity: 0.7, textTransform: 'lowercase', marginTop: 2, fontStyle: 'italic' }, 
   compBadge: { alignItems: "center", justifyContent: "center", paddingHorizontal: 12, paddingVertical: 6, backgroundColor: "#511619", borderRadius: 14, minWidth: 76 },
   compText: { color: "#F0E4C1", fontSize: 24, fontWeight: "900" }, 
   compCaption: { color: "#F0E4C1", opacity: 0.85, fontSize: 10, marginTop: -2, textTransform: "lowercase" },

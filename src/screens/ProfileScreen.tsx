@@ -120,6 +120,7 @@ export default function ProfileScreen() {
   const ratedGenres = (userProfile.genreRatings || []).filter((g: any) => g.rating > 0).length;
   const genderDisplay = userProfile.gender || '';
   const interestedInDisplay = (userProfile.genderPreferences || []).join(', ');
+  const intentDisplay = (userProfile.relationshipIntent || []).join(', '); // <--- NEW INTENT DISPLAY
   const fourFavorites = (userProfile.favorites || []).slice(0, 4);
 
   return (
@@ -171,6 +172,12 @@ export default function ProfileScreen() {
               {interestedInDisplay && (
                 <Text style={styles.interestedIn}>
                   looking for: {interestedInDisplay}
+                </Text>
+              )}
+              {/* <--- NEW INTENT TEXT */}
+              {intentDisplay && (
+                <Text style={styles.interestedIn}>
+                  intent: {intentDisplay}
                 </Text>
               )}
             </View>

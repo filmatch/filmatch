@@ -179,6 +179,7 @@ export default function SwipeScreen() {
         currentUser.uid,
         (myProfile.gender as string) || 'Male',
         myProfile.genderPreferences || [],
+        myProfile.relationshipIntent || ['friends', 'romance'],
         myProfile.city as string
       );
 

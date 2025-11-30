@@ -38,6 +38,7 @@ type Draft = {
   city: string;
   gender: string;
   interestedIn: string[];
+  intent: string[]; // <--- NEW TYPE FIELD
   bio: string;
   photos: string[];
   email: string;
@@ -52,6 +53,7 @@ type GridItem = {
 // --- CONSTANTS DEFINED ONCE ---
 const GENDER_OPTIONS = ["female", "male", "nonbinary", "other"];
 const INTERESTED_OPTIONS = ["female", "male", "nonbinary", "other"];
+const INTENT_OPTIONS = ["friends", "romance"]; // <--- NEW CONSTANT
 const MAX_BIO = 160;
 const MAX_PHOTOS = 6;
 
@@ -97,6 +99,7 @@ export default function EditProfileScreen() {
     city: "",
     gender: "",
     interestedIn: [],
+    intent: [], // <--- INIT INTENT
     bio: "",
     photos: [],
     email: "",
@@ -132,6 +135,11 @@ export default function EditProfileScreen() {
           ? (profile as any).interestedIn
           : [];
 
+        // LOAD INTENT FROM PROFILE
+        const intentArray = Array.isArray((profile as any)?.relationshipIntent)
+          ? (profile as any).relationshipIntent
+          : [];
+
         const existingPhotos = profile?.photos && Array.isArray(profile.photos) 
           ? profile.photos.filter(p => p && p.trim())
           : [];
@@ -142,6 +150,7 @@ export default function EditProfileScreen() {
           city: (profile as any)?.city || "",
           gender: (profile as any)?.gender || "",
           interestedIn: interestedArray,
+          intent: intentArray, // <--- SET INTENT
           bio: profile?.bio || "",
           photos: existingPhotos,
           email: user.email || "",
@@ -234,6 +243,7 @@ export default function EditProfileScreen() {
         city: draft.city.trim(),
         gender: draft.gender,
         genderPreferences: draft.interestedIn,
+        relationshipIntent: draft.intent, // <--- SAVE INTENT
         bio: draft.bio.trim(),
         photos: draft.photos,
       });
@@ -403,6 +413,23 @@ export default function EditProfileScreen() {
                   style={[styles.pill, draft.interestedIn.includes(option) && styles.pillActive]}
                 >
                   <Text style={[styles.pillText, draft.interestedIn.includes(option) && styles.pillTextActive]}>{option}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            {/* --- NEW INTENT SECTION --- */}
+            <Text style={styles.label}>i'm here for</Text>
+            <View style={styles.genderRow}>
+              {INTENT_OPTIONS.map((option) => (
+                <TouchableOpacity
+                  key={option}
+                  onPress={() => setDraft(p => {
+                    const has = p.intent.includes(option);
+                    return { ...p, intent: has ? p.intent.filter(x => x !== option) : [...p.intent, option] };
+                  })}
+                  style={[styles.pill, draft.intent.includes(option) && styles.pillActive]}
+                >
+                  <Text style={[styles.pillText, draft.intent.includes(option) && styles.pillTextActive]}>{option}</Text>
                 </TouchableOpacity>
               ))}
             </View>

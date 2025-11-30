@@ -6,43 +6,65 @@ import TMDbService from './TMDbService';
 export class MatchingService {
   private static db = getFirestore();
 
-  // 1. FIXED: Gender & City Filter
   static async getPotentialMatches(
     currentUserId: string,
     currentUserGender: string,
     genderPreferences: string[],
+    currentUserIntent: string[], 
     userCity?: string,
     maxResults: number = 20
   ): Promise<UserProfile[]> {
     try {
-      // Safety fallback: If no preference, default to opposite
-      let safePrefs = genderPreferences;
-      if (!safePrefs || safePrefs.length === 0) {
-        safePrefs = currentUserGender === 'Male' ? ['Female'] : ['Male'];
+      // --- 1. ARGUMENT SAFETY CHECK (Fixes the crash) ---
+      // If the caller hasn't been updated, 'currentUserIntent' might be the city string.
+      let safeIntent: string[] = [];
+      let safeCity = userCity;
+
+      if (Array.isArray(currentUserIntent)) {
+        safeIntent = currentUserIntent;
+      } else if (typeof currentUserIntent === 'string') {
+        // Argument mismatch detected: intent slot received a string (likely the city)
+        console.warn("MatchingService: Arguments mismatched. Fixing automatically.");
+        safeCity = currentUserIntent; // Move the string to city
+        safeIntent = []; // Reset intent
       }
 
-      console.log(`Finding matches for ${currentUserId} (${currentUserGender}) looking for:`, safePrefs);
+      // Default fallback if empty
+      if (!safeIntent || safeIntent.length === 0) {
+        // If no intent is found, default to both so we show SOMETHING
+        safeIntent = ['friends', 'romance'];
+      }
+
+      // Safety fallback for gender prefs
+      let safePrefs = genderPreferences;
+      if (!safePrefs || safePrefs.length === 0) {
+        safePrefs = currentUserGender === 'male' ? ['female'] : ['male'];
+      }
+
+      console.log(`Finding matches for ${currentUserId}. Intent: ${safeIntent}, City: ${safeCity}`);
+      // ---------------------------------------------------
 
       const usersRef = collection(this.db, 'users');
       let snapshot;
       
       const constraints = [
         where('hasProfile', '==', true),
-        where('gender', 'in', safePrefs), // CRITICAL FIX: Actually filters by gender
+        where('gender', 'in', safePrefs),
+        where('relationshipIntent', 'array-contains-any', safeIntent) 
       ];
 
       // Try to find people in the same city first
-      if (userCity) {
+      if (safeCity) {
         try {
           const qCity = query(
             usersRef,
             ...constraints,
-            where('city', '==', userCity),
+            where('city', '==', safeCity),
             limit(50)
           );
           snapshot = await getDocs(qCity);
         } catch (e) {
-          console.warn('City query failed, falling back to global.');
+          console.warn('City query failed or returned empty, falling back to global.');
         }
       }
 
@@ -52,14 +74,13 @@ export class MatchingService {
         snapshot = await getDocs(qGlobal);
       }
 
-      // Filter out people you've ALREADY swiped on
       const alreadySwipedIds = await this.getSwipedUserIds(currentUserId);
       
       const matches = snapshot.docs
         .map(doc => doc.data() as UserProfile)
         .filter(user => {
-          if (user.uid === currentUserId) return false; // Don't match self
-          if (alreadySwipedIds.includes(user.uid)) return false; // Don't show again
+          if (user.uid === currentUserId) return false;
+          if (alreadySwipedIds.includes(user.uid)) return false;
           return true;
         })
         .slice(0, maxResults);
@@ -72,11 +93,9 @@ export class MatchingService {
     }
   }
 
-  // 2. FIXED: Swipe History Check
   private static async getSwipedUserIds(currentUserId: string): Promise<string[]> {
     try {
       const swipesRef = collection(this.db, 'swipes');
-      // Look for docs where YOU are the "fromUserId"
       const q = query(swipesRef, where('fromUserId', '==', currentUserId)); 
       
       const snapshot = await getDocs(q);
@@ -96,12 +115,10 @@ export class MatchingService {
     }
   }
 
-  // 3. RESTORED: Compatibility Calculation (This was missing!)
   static calculateCompatibility(user1: UserProfile, user2: UserProfile): number {
     let score = 0;
     let totalWeight = 0;
 
-    // A. Genre Overlap (Weight: 50)
     if (user1.genreRatings?.length && user2.genreRatings?.length) {
       const u1High = user1.genreRatings.filter(g => g.rating >= 4).map(g => g.genre);
       const u2High = user2.genreRatings.filter(g => g.rating >= 4).map(g => g.genre);
@@ -114,7 +131,6 @@ export class MatchingService {
       totalWeight += 50;
     }
 
-    // B. Favorites Overlap (Weight: 20)
     if (user1.favorites?.length && user2.favorites?.length) {
       const u1Ids = user1.favorites.map(f => String(f.id).replace('fav_', '').split('_')[0]);
       const u2Ids = user2.favorites.map(f => String(f.id).replace('fav_', '').split('_')[0]);
@@ -125,7 +141,6 @@ export class MatchingService {
       totalWeight += 20;
     }
 
-    // C. Age Proximity (Weight: 30)
     if (user1.age && user2.age) {
       const diff = Math.abs(user1.age - user2.age);
       let ageScore = 0;

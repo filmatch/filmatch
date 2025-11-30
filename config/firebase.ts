@@ -1,8 +1,10 @@
 // src/config/firebase.ts
 import { initializeApp } from 'firebase/app';
-import { getAuth } from 'firebase/auth';
+// @ts-ignore: VS Code sometimes fails to find this export in React Native types, but it exists in runtime.
+import { initializeAuth, getReactNativePersistence, getAuth } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
+import ReactNativeAsyncStorage from '@react-native-async-storage/async-storage';
 
 const firebaseConfig = {
   apiKey: process.env.EXPO_PUBLIC_FIREBASE_API_KEY,
@@ -16,8 +18,12 @@ const firebaseConfig = {
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
 
-// Initialize services
-const auth = getAuth(app);
+// Initialize Auth with explicit React Native persistence
+// @ts-ignore: Suppressing type error if definitions are out of sync
+const auth = initializeAuth(app, {
+  persistence: getReactNativePersistence(ReactNativeAsyncStorage)
+});
+
 const db = getFirestore(app);
 const storage = getStorage(app);
 

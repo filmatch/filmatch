@@ -30,7 +30,7 @@ export type UserProfile = {
   genderPreferences?: string[]; // ["female", "male"...]
   bio?: string;
   photos?: string[];            // storage URLs
-
+relationshipIntent?: string[]; // <--- ADD THIS LINE
   // Preferences
   favorites?: FavoriteMovie[];
   recentWatches?: RecentWatch[];

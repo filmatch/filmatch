@@ -74,6 +74,13 @@ export default function AuthNavigator() {
   
   const isExplicitLogout = useRef(false);
 
+  // Use a ref to track state inside the listener without adding dependencies
+  const stateRef = useRef(state);
+
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
+
   const handleUserLogout = async () => {
     isExplicitLogout.current = true;
     await signOut(auth);
@@ -126,19 +133,19 @@ export default function AuthNavigator() {
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (user) => {
       if (user) {
+        // FIXED: Removed the 'if state !== auth' check. 
+        // We now ALWAYS verify the user status when Firebase reports a user.
+        // This ensures you land on the correct screen even if the state Ref is stale.
         await checkUserStatus(user, false);
       } else {
-        // FIXED LOGIC:
-        // Only force 'unauth' (Welcome Screen) if we are NOT in 'verification' mode
-        // AND we are NOT in 'login' mode.
-        // This prevents the listener from overwriting our manual redirect to the Login page.
-        if (state !== 'verification' && state !== 'login' && !isExplicitLogout.current) {
+        // Use stateRef to avoid redirecting if we are intentionally on Login/Verification
+        if (stateRef.current !== 'verification' && stateRef.current !== 'login' && !isExplicitLogout.current) {
            setState('unauth');
         }
       }
     });
     return unsub;
-  }, [state]);
+  }, []); // Empty dependency array prevents the infinite loop
 
   if (state === 'loading') return <LoadingScreen />;
 
@@ -152,7 +159,7 @@ export default function AuthNavigator() {
         >
           {() => (
             <Stack.Navigator 
-              // FIXED: Added key to force re-render when state changes, ensuring initialRouteName works
+              // Key forces re-render when switching between unauth/login states
               key={state}
               screenOptions={{ headerShown: false }} 
               initialRouteName={state === 'login' ? 'Auth' : 'Welcome'}
@@ -171,7 +178,6 @@ export default function AuthNavigator() {
                 if (auth.currentUser) {
                   checkUserStatus(auth.currentUser, true);
                 } else {
-                  // If session is null when clicking refresh, go straight to Login
                   setState('login');
                 }
               }} 
