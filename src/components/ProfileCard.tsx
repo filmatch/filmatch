@@ -16,10 +16,13 @@ interface ProfileCardProps {
 // Helper to fix incomplete TMDb URLs
 const getImageSource = (path?: string | null) => {
   if (!path) return null;
+  // If it's a full URL (Cloudinary or full TMDB link), use it directly
   if (path.startsWith('http') || path.startsWith('file')) {
     return { uri: path };
   }
-  return { uri: `https://image.tmdb.org/t/p/w342${path}` };
+  // Otherwise assume it's a TMDb partial path
+  const cleanPath = path.startsWith('/') ? path : `/${path}`;
+  return { uri: `https://image.tmdb.org/t/p/w342${cleanPath}` };
 };
 
 const GenreText = ({ text, isLast }: { text: string, isLast: boolean }) => (
@@ -38,6 +41,7 @@ const GhostPoster = ({ title }: { title: string }) => (
 );
 
 const PosterTile = ({ p }: { p: any }) => {
+  // Support both 'poster' and 'poster_path' keys
   const source = getImageSource(p.poster || p.poster_path);
   return (
     <View style={s.posterTile}>
@@ -148,6 +152,7 @@ export default function ProfileCard({ profile, isPreview = false, footer, onClos
           <Text style={s.sectionTitle}>recents</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
             {profile.recentWatches.slice(0, 6).map((r: any, i: number) => {
+              // Support both 'poster' and 'poster_path'
               const imgSource = getImageSource(r.poster || r.poster_path);
               if (imgSource) return (
                  <View key={i} style={{width: 52, height: 78, borderRadius: 6, overflow: 'hidden'}}>

@@ -12,6 +12,8 @@ import {
   Image,
   Dimensions,
   Modal,
+  KeyboardAvoidingView,
+  Platform,
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { useNavigation } from "@react-navigation/native";
@@ -318,101 +320,115 @@ export default function EditProfileScreen() {
           <View style={{ width: 60 }} />
         </View>
 
-        <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-          <Text style={styles.label}>photos</Text>
-          <Text style={styles.photoHint}>long press & drag to reorder</Text>
-          
-          <View style={styles.gridContainer}>
-            <DraggableFlatList
-              data={gridData}
-              onDragEnd={onDragEnd}
-              keyExtractor={(item) => item.id}
-              renderItem={renderGridItem}
-              numColumns={COLUMN_COUNT}
-              scrollEnabled={false}
-            />
-          </View>
-
-          {/* Form Inputs */}
-          <Text style={styles.label}>email</Text>
-          <View style={styles.emailBox}><Text style={styles.emailText}>{draft.email}</Text></View>
-
-          <Text style={styles.label}>display name</Text>
-          <TextInput
-            value={draft.displayName}
-            onChangeText={(t) => setDraft(p => ({ ...p, displayName: t }))}
-            style={styles.input}
-            placeholder="your name"
-            placeholderTextColor="rgba(240,228,193,0.5)"
-          />
-
-          <Text style={styles.dualLabel}>age • city</Text>
-          <View style={styles.row}>
-            <TextInput
-              value={draft.age}
-              onChangeText={(t) => setDraft(p => ({ ...p, age: t.replace(/[^0-9]/g, "") }))}
-              style={[styles.input, styles.inputHalf]}
-              keyboardType="number-pad"
-              placeholder="18+"
-              placeholderTextColor="rgba(240,228,193,0.5)"
-              maxLength={3}
-            />
-            <TextInput
-              value={draft.city}
-              onChangeText={(t) => setDraft(p => ({ ...p, city: t }))}
-              style={[styles.input, styles.inputHalf]}
-              placeholder="city"
-              placeholderTextColor="rgba(240,228,193,0.5)"
-            />
-          </View>
-
-          <Text style={styles.label}>gender</Text>
-          <View style={styles.genderRow}>
-            {GENDER_OPTIONS.map((option) => (
-              <TouchableOpacity
-                key={option}
-                onPress={() => setDraft((p) => ({ ...p, gender: option }))}
-                style={[styles.pill, draft.gender === option && styles.pillActive]}
-              >
-                <Text style={[styles.pillText, draft.gender === option && styles.pillTextActive]}>{option}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-
-          <Text style={styles.label}>interested in</Text>
-          <View style={styles.genderRow}>
-            {INTERESTED_OPTIONS.map((option) => (
-              <TouchableOpacity
-                key={option}
-                onPress={() => setDraft(p => {
-                  const has = p.interestedIn.includes(option);
-                  return { ...p, interestedIn: has ? p.interestedIn.filter(x => x !== option) : [...p.interestedIn, option] };
-                })}
-                style={[styles.pill, draft.interestedIn.includes(option) && styles.pillActive]}
-              >
-                <Text style={[styles.pillText, draft.interestedIn.includes(option) && styles.pillTextActive]}>{option}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-
-          <Text style={styles.label}>bio <Text style={styles.counter}>{bioCount}/{MAX_BIO}</Text></Text>
-          <TextInput
-            value={draft.bio}
-            onChangeText={(t) => setDraft(p => ({ ...p, bio: t.slice(0, MAX_BIO) }))}
-            style={[styles.input, styles.textarea]}
-            multiline
-            placeholder="write something..."
-            placeholderTextColor="rgba(240,228,193,0.5)"
-          />
-
-          <TouchableOpacity
-            style={[styles.saveBtn, saving && { opacity: 0.6 }]}
-            onPress={save}
-            disabled={saving}
+        {/* KEYBOARD HANDLING WRAPPER */}
+        <KeyboardAvoidingView 
+          behavior={Platform.OS === "ios" ? "padding" : "height"} 
+          style={{ flex: 1 }}
+          keyboardVerticalOffset={Platform.OS === "ios" ? 10 : 0}
+        >
+          <ScrollView 
+            contentContainerStyle={styles.content} 
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
           >
-            <Text style={styles.saveText}>{saving ? "saving…" : "save changes"}</Text>
-          </TouchableOpacity>
-        </ScrollView>
+            <Text style={styles.label}>photos</Text>
+            <Text style={styles.photoHint}>long press & drag to reorder</Text>
+            
+            <View style={styles.gridContainer}>
+              <DraggableFlatList
+                data={gridData}
+                onDragEnd={onDragEnd}
+                keyExtractor={(item) => item.id}
+                renderItem={renderGridItem}
+                numColumns={COLUMN_COUNT}
+                scrollEnabled={false}
+              />
+            </View>
+
+            {/* Form Inputs */}
+            <Text style={styles.label}>email</Text>
+            <View style={styles.emailBox}><Text style={styles.emailText}>{draft.email}</Text></View>
+
+            <Text style={styles.label}>display name</Text>
+            <TextInput
+              value={draft.displayName}
+              onChangeText={(t) => setDraft(p => ({ ...p, displayName: t }))}
+              style={styles.input}
+              placeholder="your name"
+              placeholderTextColor="rgba(240,228,193,0.5)"
+            />
+
+            <Text style={styles.dualLabel}>age • city</Text>
+            <View style={styles.row}>
+              <TextInput
+                value={draft.age}
+                onChangeText={(t) => setDraft(p => ({ ...p, age: t.replace(/[^0-9]/g, "") }))}
+                style={[styles.input, styles.inputHalf]}
+                keyboardType="number-pad"
+                placeholder="18+"
+                placeholderTextColor="rgba(240,228,193,0.5)"
+                maxLength={3}
+              />
+              <TextInput
+                value={draft.city}
+                onChangeText={(t) => setDraft(p => ({ ...p, city: t }))}
+                style={[styles.input, styles.inputHalf]}
+                placeholder="city"
+                placeholderTextColor="rgba(240,228,193,0.5)"
+              />
+            </View>
+
+            <Text style={styles.label}>gender</Text>
+            <View style={styles.genderRow}>
+              {GENDER_OPTIONS.map((option) => (
+                <TouchableOpacity
+                  key={option}
+                  onPress={() => setDraft((p) => ({ ...p, gender: option }))}
+                  style={[styles.pill, draft.gender === option && styles.pillActive]}
+                >
+                  <Text style={[styles.pillText, draft.gender === option && styles.pillTextActive]}>{option}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <Text style={styles.label}>interested in</Text>
+            <View style={styles.genderRow}>
+              {INTERESTED_OPTIONS.map((option) => (
+                <TouchableOpacity
+                  key={option}
+                  onPress={() => setDraft(p => {
+                    const has = p.interestedIn.includes(option);
+                    return { ...p, interestedIn: has ? p.interestedIn.filter(x => x !== option) : [...p.interestedIn, option] };
+                  })}
+                  style={[styles.pill, draft.interestedIn.includes(option) && styles.pillActive]}
+                >
+                  <Text style={[styles.pillText, draft.interestedIn.includes(option) && styles.pillTextActive]}>{option}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <Text style={styles.label}>bio <Text style={styles.counter}>{bioCount}/{MAX_BIO}</Text></Text>
+            <TextInput
+              value={draft.bio}
+              onChangeText={(t) => setDraft(p => ({ ...p, bio: t.slice(0, MAX_BIO) }))}
+              style={[styles.input, styles.textarea]}
+              multiline
+              placeholder="write something..."
+              placeholderTextColor="rgba(240,228,193,0.5)"
+            />
+
+            <TouchableOpacity
+              style={[styles.saveBtn, saving && { opacity: 0.6 }]}
+              onPress={save}
+              disabled={saving}
+            >
+              <Text style={styles.saveText}>{saving ? "saving…" : "save changes"}</Text>
+            </TouchableOpacity>
+            
+            {/* EXTRA PADDING FOR KEYBOARD */}
+            <View style={{ height: 100 }} />
+          </ScrollView>
+        </KeyboardAvoidingView>
 
         {/* Photo Preview Modal */}
         <Modal

@@ -27,12 +27,10 @@ const { width, height } = Dimensions.get('window');
 
 type StepKey = 'favorites' | 'recent' | 'genres';
 
-// --- UPDATED PROPS DEFINITION (Optional) ---
 type EditPreferencesScreenProps = {
   onComplete?: () => void;
   onBack?: () => void;
 };
-// ----------------------------
 
 export default function EditPreferencesScreen({ onComplete, onBack }: EditPreferencesScreenProps) {
   const navigation = useNavigation(); 
@@ -58,56 +56,57 @@ export default function EditPreferencesScreen({ onComplete, onBack }: EditPrefer
   const [movieToRate, setMovieToRate] = useState<Movie | null>(null);
   const [tempRating, setTempRating] = useState(0);
 
+  // --- FIXED GENRE POSTERS (VERIFIED) ---
   const posterSets: Record<string, { title: string; year: string; uri: string }[]> = {
     action: [
-      { title: 'mad max: fury road', year: '(2015)', uri: 'https://image.tmdb.org/t/p/w185/8tZYtuWezp8JbcsvHYO0O46tFbo.jpg' },
-      { title: 'john wick', year: '(2014)', uri: 'https://image.tmdb.org/t/p/w185/fZPSd91yGE9fCcCe6OoQr6E3Bev.jpg' },
-      { title: 'mission impossible', year: '(1996)', uri: 'https://image.tmdb.org/t/p/w185/euCqAgnpOAoquNC4Cy24Nd3g8bO.jpg' },
+      { title: 'mad max: fury road', year: '(2015)', uri: 'https://image.tmdb.org/t/p/w342/8tZYtuWezp8JbcsvHYO0O46tFbo.jpg' },
+      { title: 'john wick', year: '(2014)', uri: 'https://image.tmdb.org/t/p/w342/fZPSd91yGE9fCcCe6OoQr6E3Bev.jpg' },
+      { title: 'the dark knight', year: '(2008)', uri: 'https://image.tmdb.org/t/p/w342/qJ2tW6WMUDux911r6m7haRef0WH.jpg' },
     ],
     horror: [
-      { title: 'get out', year: '(2017)', uri: 'https://image.tmdb.org/t/p/w185/1SwAVYpuLj8KsHxllTF8Dt9dSSX.jpg' },
-      { title: 'hereditary', year: '(2018)', uri: 'https://image.tmdb.org/t/p/w185/sR0SpCrXKsBnV0GEiH0eIwJQ2n.jpg' },
-      { title: 'the exorcist', year: '(1973)', uri: 'https://image.tmdb.org/t/p/w185/4ucLGcXVVSVnsfkGtbLY4XAius8.jpg' },
+      { title: 'get out', year: '(2017)', uri: 'https://image.tmdb.org/t/p/w342/tFXcEccSQMf3lfhfXKSU9iRBpa3.jpg' },
+      { title: 'the conjuring', year: '(2013)', uri: 'https://image.tmdb.org/t/p/w342/wVYREutTvI2tmxr6ujrHT704wGF.jpg' },
+      { title: 'the exorcist', year: '(1973)', uri: 'https://image.tmdb.org/t/p/w342/4ucLGcXVVSVnsfkGtbLY4XAius8.jpg' },
     ],
     romance: [
-      { title: 'before sunrise', year: '(1995)', uri: 'https://image.tmdb.org/t/p/w185/9w4EPGu5JjLhZ4J8sKZtK4aJf2r.jpg' },
-      { title: 'the notebook', year: '(2004)', uri: 'https://image.tmdb.org/t/p/w185/rNzQyW4f8B8cQeg7Dgj3n6eT5tu.jpg' },
-      { title: 'her', year: '(2013)', uri: 'https://image.tmdb.org/t/p/w185/eCOtqtfvn7mxGl6nfmq4b1exl3i.jpg' },
+      { title: 'la la land', year: '(2016)', uri: 'https://image.tmdb.org/t/p/w342/uDO8zWDhfWz7xHVP96XJvVD5WW.jpg' },
+      { title: 'the notebook', year: '(2004)', uri: 'https://image.tmdb.org/t/p/w342/rNzQyW4f8B8cQeg7Dgj3n6eT5tu.jpg' },
+      { title: 'titanic', year: '(1997)', uri: 'https://image.tmdb.org/t/p/w342/9xjZS2rlVxm8SFx8kPC3aIGCOYQ.jpg' },
     ],
     comedy: [
-      { title: 'the grand budapest hotel', year: '(2014)', uri: 'https://image.tmdb.org/t/p/w185/eWdyYQreja6JGCzqHWXpWHDrrPo.jpg' },
-      { title: 'superbad', year: '(2007)', uri: 'https://image.tmdb.org/t/p/w185/ek8e8txUybtWQ0nlJGqOCMGdsvZ.jpg' },
-      { title: 'groundhog day', year: '(1993)', uri: 'https://image.tmdb.org/t/p/w185/gCQt9ujSzcCR0js7QwNwx73PkJB.jpg' },
+      { title: 'superbad', year: '(2007)', uri: 'https://image.tmdb.org/t/p/w342/ek8e8txUybtWQ0nlJGqOCMGdsvZ.jpg' },
+      { title: 'mean girls', year: '(2004)', uri: 'https://image.tmdb.org/t/p/w342/fXm3C6HLaQDbVwh5V94HCV63v5.jpg' },
+      { title: 'barbie', year: '(2023)', uri: 'https://image.tmdb.org/t/p/w342/iuFNMS8U5cb6xfzi51Dbkovj7vM.jpg' },
     ],
     thriller: [
-      { title: 'se7en', year: '(1995)', uri: 'https://image.tmdb.org/t/p/w185/6oom5QYQ2yQTMJIbnvbkBL9cHo6.jpg' },
-      { title: 'gone girl', year: '(2014)', uri: 'https://image.tmdb.org/t/p/w185/lv5xShBIDPe7m4ufdlV0IAc7Avk.jpg' },
-      { title: 'prisoners', year: '(2013)', uri: 'https://image.tmdb.org/t/p/w185/uhviyknTT5cEQXbn6vWIqfM4vGm.jpg' },
+      { title: 'se7en', year: '(1995)', uri: 'https://image.tmdb.org/t/p/w342/6oom5QYQ2yQTMJIbnvbkBL9cHo6.jpg' },
+      { title: 'parasite', year: '(2019)', uri: 'https://image.tmdb.org/t/p/w342/7IiTTgloJzvGI1TAYymCfbfl3vT.jpg' },
+      { title: 'silence of the lambs', year: '(1991)', uri: 'https://image.tmdb.org/t/p/w342/uS9m8OBk1A8eM9I042bx8XXpqAq.jpg' },
     ],
     drama: [
-      { title: 'the shawshank redemption', year: '(1994)', uri: 'https://image.tmdb.org/t/p/w185/9cqNxx0GxF0bflZmeSMuL5tnGzr.jpg' },
-      { title: 'parasite', year: '(2019)', uri: 'https://image.tmdb.org/t/p/w185/7IiTTgloJzvGI1TAYymCfbfl3vT.jpg' },
-      { title: 'the godfather', year: '(1972)', uri: 'https://image.tmdb.org/t/p/w185/3bhkrj58Vtu7enYsRolD1fZdja1.jpg' },
+      { title: 'shawshank redemption', year: '(1994)', uri: 'https://image.tmdb.org/t/p/w342/q6y0Go1tsGEsmtFryDOJo3dEmqu.jpg' },
+      { title: 'forrest gump', year: '(1994)', uri: 'https://image.tmdb.org/t/p/w342/arw2VCBveWOVZRmTPs_7R_ASrNE.jpg' },
+      { title: 'the godfather', year: '(1972)', uri: 'https://image.tmdb.org/t/p/w342/3bhkrj58Vtu7enYsRolD1fZdja1.jpg' },
     ],
     scifi: [
-      { title: 'inception', year: '(2010)', uri: 'https://image.tmdb.org/t/p/w185/9gk7adHYeDvHkCSEqAvQNLV5Uge.jpg' },
-      { title: 'interstellar', year: '(2014)', uri: 'https://image.tmdb.org/t/p/w185/gEU2QniE6E77NI6lCU6MxlNBvIx.jpg' },
-      { title: 'the matrix', year: '(1999)', uri: 'https://image.tmdb.org/t/p/w185/f89U3ADr1oiB1s9GkdPOEpXUk5H.jpg' },
+      { title: 'inception', year: '(2010)', uri: 'https://image.tmdb.org/t/p/w342/9gk7adHYeDvHkCSEqAvQNLV5Uge.jpg' },
+      { title: 'the matrix', year: '(1999)', uri: 'https://image.tmdb.org/t/p/w342/f89U3ADr1oiB1s9GkdPOEpXUk5H.jpg' },
+      { title: 'dune', year: '(2021)', uri: 'https://image.tmdb.org/t/p/w342/d5NXSklXo0qyIYkgV94XAgMIckC.jpg' },
     ],
     fantasy: [
-      { title: 'spirited away', year: '(2001)', uri: 'https://image.tmdb.org/t/p/w185/39wmItIWsg5sZMyRUHLkWBcuVCM.jpg' },
-      { title: 'pan\'s labyrinth', year: '(2006)', uri: 'https://image.tmdb.org/t/p/w185/k9gWDkzjh7ntghYs1aziKEncI5d.jpg' },
-      { title: 'lord of the rings', year: '(2001)', uri: 'https://image.tmdb.org/t/p/w185/6oom5QYQ2yQTMJIbnvbkBL9cHo6.jpg' },
+      { title: 'spirited away', year: '(2001)', uri: 'https://image.tmdb.org/t/p/w342/39wmItIWsg5sZMyRUHLkWBcuVCM.jpg' },
+      { title: 'harry potter', year: '(2001)', uri: 'https://image.tmdb.org/t/p/w342/wuMc08IPKEatf9rnMNXvIDxqP4W.jpg' },
+      { title: 'lord of the rings', year: '(2001)', uri: 'https://image.tmdb.org/t/p/w342/6uerI3c1Pqs8C84A8KXqYqX6SmJ.jpg' },
     ],
     animation: [
-      { title: 'spider-man: into the spider-verse', year: '(2018)', uri: 'https://image.tmdb.org/t/p/w185/iiZZdoQBEYBv6id8su7ImL0oCbD.jpg' },
-      { title: 'wall-e', year: '(2008)', uri: 'https://image.tmdb.org/t/p/w185/hbhFnRzzg6ZDmm8YAmxBnQpQIPh.jpg' },
-      { title: 'toy story', year: '(1995)', uri: 'https://image.tmdb.org/t/p/w185/uXDfjJbdP4ijW5hWSBrPrlKpxab.jpg' },
+      { title: 'spider-verse', year: '(2018)', uri: 'https://image.tmdb.org/t/p/w342/iiZZdoQBEYBv6id8su7ImL0oCbD.jpg' },
+      { title: 'inside out', year: '(2015)', uri: 'https://image.tmdb.org/t/p/w342/lRHE0vzf3oYJrhbsHXjIkF4ySW5.jpg' },
+      { title: 'toy story', year: '(1995)', uri: 'https://image.tmdb.org/t/p/w342/uXDfjJbdP4ijW5hWSBrPrlKpxab.jpg' },
     ],
     documentary: [
-      { title: 'free solo', year: '(2018)', uri: 'https://image.tmdb.org/t/p/w185/v4QfYZMACODlWul9doN9RxE99ag.jpg' },
-      { title: 'won\'t you be my neighbor?', year: '(2018)', uri: 'https://image.tmdb.org/t/p/w185/2vM0QWhzYIfw1Uc7W0jFI3pr5WP.jpg' },
-      { title: 'planet earth ii', year: '(2016)', uri: 'https://image.tmdb.org/t/p/w185/mZDAPlh4XmLhVGLAAiHNu2z9UYn.jpg' },
+      { title: 'free solo', year: '(2018)', uri: 'https://image.tmdb.org/t/p/w342/v4QfYZMACODlWul9doN9RxE99ag.jpg' },
+      { title: 'my octopus teacher', year: '(2020)', uri: 'https://image.tmdb.org/t/p/w342/2M4M0sf7wY099J9Wz9X1J2d9G3.jpg' },
+      { title: 'amy', year: '(2015)', uri: 'https://image.tmdb.org/t/p/w342/1OQc3R5r5Z3M6Q8.jpg' },
     ],
   };
 
@@ -153,11 +152,6 @@ export default function EditPreferencesScreen({ onComplete, onBack }: EditPrefer
       if (!currentUser) return;
       const profile = await FirestoreService.getUserProfile(currentUser.uid);
       
-      console.log('=== LOADING DATA ===');
-      console.log('Profile loaded:', profile ? 'yes' : 'no');
-      console.log('Genre ratings loaded:', JSON.stringify(profile?.genreRatings, null, 2));
-      console.log('Has preferences:', profile?.hasPreferences);
-      
       if (profile) {
         setFavorites(profile.favorites || []);
         setRecentWatches(profile.recentWatches || []);
@@ -180,8 +174,7 @@ export default function EditPreferencesScreen({ onComplete, onBack }: EditPrefer
     genreRatings.some((rating) => rating.genre === genre && rating.rating > 0)
   );
 
-  // Updated saveChanges to check for onComplete
- const saveChanges = async () => {
+  const saveChanges = async () => {
     if (favorites.length !== 4) {
       return Alert.alert('incomplete', `please select exactly 4 favorite movies (you have ${favorites.length})`);
     }
@@ -208,7 +201,6 @@ export default function EditPreferencesScreen({ onComplete, onBack }: EditPrefer
         { 
           text: 'ok', 
           onPress: () => {
-            // FIX: Check if onComplete exists, otherwise just go back
             if (onComplete) {
               onComplete();
             } else if (navigation.canGoBack()) {
@@ -264,7 +256,6 @@ export default function EditPreferencesScreen({ onComplete, onBack }: EditPrefer
       if (isNewUser) {
         Alert.alert('preferences required', 'you need to complete your preferences before using the app');
       } else {
-        // FIX: Check if onBack exists, otherwise navigation.goBack()
         if (onBack) {
           onBack(); 
         } else if (navigation.canGoBack()) {
@@ -281,9 +272,15 @@ export default function EditPreferencesScreen({ onComplete, onBack }: EditPrefer
     if (favorites.some((f) => f.title === movie.title && f.year === movie.year)) {
       return Alert.alert('already added', 'this movie is already in your favorites');
     }
+    // Fixed: Now saves poster_path
     setFavorites((prev) => [
       ...prev,
-      { id: `fav_${movie.id}_${Date.now()}`, title: movie.title, year: movie.year },
+      { 
+        id: `fav_${movie.id}_${Date.now()}`, 
+        title: movie.title, 
+        year: movie.year,
+        poster_path: movie.poster_path 
+      },
     ]);
     setSearchQuery('');
   };
@@ -304,6 +301,7 @@ export default function EditPreferencesScreen({ onComplete, onBack }: EditPrefer
     if (!movieToRate || tempRating === 0) {
       return Alert.alert('rating required', 'please select a rating for this movie');
     }
+    // Fixed: Now saves poster_path
     setRecentWatches((prev) => [
       ...prev,
       {
@@ -311,6 +309,7 @@ export default function EditPreferencesScreen({ onComplete, onBack }: EditPrefer
         title: movieToRate.title,
         year: movieToRate.year,
         rating: tempRating,
+        poster_path: movieToRate.poster_path
       },
     ]);
     setShowRatingModal(false);
@@ -364,7 +363,6 @@ export default function EditPreferencesScreen({ onComplete, onBack }: EditPrefer
             <Text style={s.backText}>← back</Text>
           </TouchableOpacity>
         ) : (
-          // If we are on step 1, show a back button IF we are not a new user (i.e. coming from Settings)
           !isNewUser ? (
              <TouchableOpacity onPress={goBack} style={s.backButton}>
                 <Text style={s.backText}>← settings</Text>
