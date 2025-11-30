@@ -6,7 +6,6 @@ import {
 import * as ImagePicker from 'expo-image-picker';
 import { FirebaseAuthService } from '../services/FirebaseAuthService';
 import { FirestoreService } from '../services/FirestoreService';
-import { FirebaseStorageService } from '../services/FirebaseStorageService';
 
 const C = { bg: '#111C2A', card: '#121D2B', text: '#F0E4C1', dim: 'rgba(240,228,193,0.75)', accent: '#511619' };
 
@@ -28,8 +27,40 @@ const SORTED_CITIES = [...CITY_LIST].sort((a, b) =>
   a.localeCompare(b, 'tr', { sensitivity: 'base' })
 );
 
+// --- CLOUDINARY UPLOAD FUNCTION (OPTIMIZED) ---
+const uploadToCloudinary = async (imageUri: string) => {
+  const data = new FormData();
+  
+  // @ts-ignore - React Native expects this specific object format
+  data.append('file', {
+    uri: imageUri,
+    type: 'image/jpeg',
+    name: 'upload.jpg',
+  });
+
+  data.append('upload_preset', 'frkquqkj'); // Your Preset
+  data.append('cloud_name', 'dhbzqhtr5');   // Your Cloud Name
+
+  try {
+    const res = await fetch('https://api.cloudinary.com/v1_1/dhbzqhtr5/image/upload', {
+      method: 'post',
+      body: data,
+    });
+    const result = await res.json();
+    
+    // ⚡️ OPTIMIZATION: Inject auto-format and auto-quality
+    if (result.secure_url) {
+      return result.secure_url.replace('/upload/', '/upload/f_auto,q_auto/');
+    }
+    return null;
+  } catch (e) {
+    console.error("Cloudinary Upload Error:", e);
+    return null;
+  }
+};
+
 export default function SetUpProfileScreen({ onComplete }: { onComplete: () => void }) {
-   const [age, setAge] = useState<string>('');
+  const [age, setAge] = useState<string>('');
   const [gender, setGender] = useState<string>('');
   const [genderPreferences, setGenderPreferences] = useState<string[]>([]);
   const [city, setCity] = useState<string>('');
@@ -84,35 +115,28 @@ export default function SetUpProfileScreen({ onComplete }: { onComplete: () => v
   };
 
   const save = async () => {
-    if (!canContinue) {
-      console.log('Cannot continue - validation failed');
-      return;
-    }
+    if (!canContinue) return;
     try {
       setSaving(true);
       setUploading(true);
       const u = FirebaseAuthService.getCurrentUser();
       if (!u) {
-        console.log('No user found');
         Alert.alert('error', 'no user found. please log in again.');
         return;
       }
       
-      // Upload photos first
-      console.log('Uploading', photos.length, 'photos...');
+      console.log('Uploading', photos.length, 'photos to Cloudinary...');
       const photoUrls: string[] = [];
+      
+      // ✅ CLOUDINARY LOGIC HERE
       for (let i = 0; i < photos.length; i++) {
-        const url = await FirebaseStorageService.uploadProfilePhoto(photos[i], u.uid, i);
-        photoUrls.push(url);
-        console.log(`Photo ${i + 1}/${photos.length} uploaded`);
+        const url = await uploadToCloudinary(photos[i]);
+        if (url) photoUrls.push(url);
       }
       
-      console.log('All photos uploaded, saving profile...');
-      
-      // Create profile if missing
+      console.log('Saving profile...');
       await FirestoreService.createUserProfileIfMissing(u.uid);
       
-      // Prepare profile data
       const profileData: any = {
         age: ageNum,
         gender,
@@ -122,22 +146,13 @@ export default function SetUpProfileScreen({ onComplete }: { onComplete: () => v
         hasProfile: true,
       };
       
-      // Only add bio if it has content
-      if (bio.trim()) {
-        profileData.bio = bio.trim();
-      }
+      if (bio.trim()) profileData.bio = bio.trim();
       
-      // Save profile using saveUserProfile (not updateUserProfile)
       await FirestoreService.saveUserProfile(u.uid, profileData);
-      
-      console.log('Profile saved successfully!');
-    onComplete();
+      onComplete();
     } catch (error: any) {
       console.error('Error saving profile:', error);
-      Alert.alert(
-        'error', 
-        error.message || 'failed to save profile. please try again.'
-      );
+      Alert.alert('error', 'failed to save profile. please try again.');
     } finally {
       setSaving(false);
       setUploading(false);

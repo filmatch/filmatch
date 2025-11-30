@@ -1,74 +1,60 @@
 // src/services/FirebaseAuthService.ts
-import { initializeApp, getApps, getApp } from 'firebase/app';
-import {
-  getAuth,
-  type Auth,
-  type User,
-  type Unsubscribe,
-  onIdTokenChanged as onIdTokenChangedWeb,
-  signInWithEmailAndPassword,
-  createUserWithEmailAndPassword,
-  signOut as fbSignOut,
-  sendPasswordResetEmail,
-  updateProfile,
-  sendEmailVerification,
-  reload,
+import { 
+  getAuth, 
+  type Auth, 
+  type User, 
+  type Unsubscribe, 
+  onIdTokenChanged as onIdTokenChangedWeb, 
+  signInWithEmailAndPassword, 
+  createUserWithEmailAndPassword, 
+  signOut as fbSignOut, 
+  sendPasswordResetEmail, 
+  updateProfile, 
+  sendEmailVerification, 
+  reload 
 } from 'firebase/auth';
-import { firebaseConfig } from '../../config/firebase';
+
+// 👇 FIXED: Changed 'config/firebase' to the correct relative path
+import { auth, firebaseConfig } from '../../config/firebase';
 import { getFirestore, doc, setDoc, serverTimestamp } from 'firebase/firestore';
 
-// Ensure Firebase is initialized
-function ensureFirebaseApp() {
-  if (!getApps().length) initializeApp(firebaseConfig);
-}
-
-// Singleton Auth Instance
-let authInstance: Auth | undefined;
-function auth(): Auth {
-  ensureFirebaseApp();
-  if (!authInstance) authInstance = getAuth(getApp());
-  return authInstance!;
-}
-
-// Singleton Firestore Instance
-const db = getFirestore(getApp());
+const db = getFirestore();
 
 const actionCodeSettings = {
-url: 'https://www.google.com',
-  handleCodeInApp: false, // Set to true only if you have configured Deep Linking
+  url: 'https://www.google.com',
+  handleCodeInApp: false,
 };
 
 const Service = {
   // --- CORE AUTH METHODS ---
   getAuth(): Auth {
-    return auth();
+    return auth;
   },
 
   getCurrentUser(): User | null {
-    return auth().currentUser;
+    return auth.currentUser;
   },
 
   onAuthStateChanged(listener: (user: User | null) => void): Unsubscribe {
-    return auth().onAuthStateChanged(listener);
+    return auth.onAuthStateChanged(listener);
   },
 
   onIdTokenChanged(listener: (user: User | null) => void): Unsubscribe {
-    // Robust check for React Native vs Web environment
-    const a = auth() as Auth & { onIdTokenChanged?: (l: (u: User | null) => void) => Unsubscribe };
+    const a = auth as Auth & { onIdTokenChanged?: (l: (u: User | null) => void) => Unsubscribe };
     if (typeof a.onIdTokenChanged === 'function') return a.onIdTokenChanged(listener);
-    return onIdTokenChangedWeb(auth(), listener);
+    return onIdTokenChangedWeb(auth, listener);
   },
 
   // --- ACTIONS ---
 
   async signIn(email: string, password: string): Promise<User> {
-    const { user } = await signInWithEmailAndPassword(auth(), email.trim(), password);
+    const { user } = await signInWithEmailAndPassword(auth, email.trim(), password);
     return user;
   },
 
   async signUp(email: string, password: string, displayName?: string): Promise<void> {
     // 1. Create the user in Authentication
-    const { user } = await createUserWithEmailAndPassword(auth(), email.trim(), password);
+    const { user } = await createUserWithEmailAndPassword(auth, email.trim(), password);
     
     // 2. Update the Display Name immediately
     if (displayName) {
@@ -80,7 +66,6 @@ const Service = {
     }
 
     // 3. Create the minimal Profile in Firestore
-    // This ensures ProfileScreen doesn't crash on first load
     try {
       await setDoc(
         doc(db, 'users', user.uid),
@@ -94,7 +79,6 @@ const Service = {
           watchedMovies: 0,
           watchlistMovies: 0,
           lastUpdated: serverTimestamp(),
-          // Add default fields to prevent "undefined" checks later
           hasProfile: false,
           hasPreferences: false,
           genreRatings: [],
@@ -106,7 +90,7 @@ const Service = {
       console.error('Error creating user profile doc:', e);
     }
 
-    // 4. Send Verification Email with the FIXED settings
+    // 4. Send Verification Email
     try { 
       await sendEmailVerification(user, actionCodeSettings); 
     } catch (e) {
@@ -114,7 +98,7 @@ const Service = {
     }
 
     // 5. Sign Out immediately so they cannot enter the app without verifying
-    await fbSignOut(auth());
+    await fbSignOut(auth);
   },
 
   async resendVerification(user: User): Promise<void> {
@@ -125,17 +109,16 @@ const Service = {
   },
 
   async reloadCurrentUser(): Promise<void> {
-    const u = auth().currentUser;
+    const u = auth.currentUser;
     if (u) await reload(u);
   },
 
   async signOut(): Promise<void> {
-    await fbSignOut(auth());
+    await fbSignOut(auth);
   },
 
   async resetPassword(email: string): Promise<void> {
-    // We trim the email to avoid errors with trailing spaces
-    await sendPasswordResetEmail(auth(), email.trim());
+    await sendPasswordResetEmail(auth, email.trim());
   },
 };
 

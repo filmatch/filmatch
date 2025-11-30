@@ -18,13 +18,12 @@ import { useNavigation } from "@react-navigation/native";
 import { FirebaseAuthService } from "../services/FirebaseAuthService";
 import { FirestoreService } from "../services/FirestoreService";
 import * as ImagePicker from 'expo-image-picker';
-import { FirebaseStorageService } from '../services/FirebaseStorageService';
+
 import DraggableFlatList, {
   RenderItemParams,
 } from 'react-native-draggable-flatlist';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
-// --- GRID DIMENSIONS ---
 const { width } = Dimensions.get('window');
 const SCREEN_PADDING = 20;
 const COLUMN_COUNT = 3;
@@ -48,10 +47,43 @@ type GridItem = {
   uri?: string;
 };
 
+// --- CONSTANTS DEFINED ONCE ---
 const GENDER_OPTIONS = ["female", "male", "nonbinary", "other"];
 const INTERESTED_OPTIONS = ["female", "male", "nonbinary", "other"];
 const MAX_BIO = 160;
 const MAX_PHOTOS = 6;
+
+// --- CLOUDINARY UPLOAD FUNCTION (OPTIMIZED) ---
+const uploadToCloudinary = async (imageUri: string) => {
+  const data = new FormData();
+  
+  // @ts-ignore - React Native expects this specific object format
+  data.append('file', {
+    uri: imageUri,
+    type: 'image/jpeg',
+    name: 'upload.jpg',
+  });
+
+  data.append('upload_preset', 'frkquqkj'); // Your Preset
+  data.append('cloud_name', 'dhbzqhtr5');   // Your Cloud Name
+
+  try {
+    const res = await fetch('https://api.cloudinary.com/v1_1/dhbzqhtr5/image/upload', {
+      method: 'post',
+      body: data,
+    });
+    const result = await res.json();
+    
+    // ⚡️ OPTIMIZATION: Inject auto-format and auto-quality
+    if (result.secure_url) {
+      return result.secure_url.replace('/upload/', '/upload/f_auto,q_auto/');
+    }
+    return null;
+  } catch (e) {
+    console.error("Cloudinary Upload Error:", e);
+    return null;
+  }
+};
 
 export default function EditProfileScreen() {
   const navigation = useNavigation();
@@ -150,15 +182,21 @@ export default function EditProfileScreen() {
     if (!user) return;
     setUploading(true);
     try {
-      const targetIndex = index !== undefined ? index : draft.photos.length;
-      const downloadURL = await FirebaseStorageService.uploadProfilePhoto(localUri, user.uid, targetIndex);
+      // ✅ CLOUDINARY LOGIC HERE
+      const downloadURL = await uploadToCloudinary(localUri);
+      
+      if (!downloadURL) throw new Error("Upload returned no URL");
+
       setDraft((prev) => {
         const newPhotos = [...prev.photos];
         if (index !== undefined && index < newPhotos.length) newPhotos[index] = downloadURL;
         else newPhotos.push(downloadURL);
         return { ...prev, photos: newPhotos };
       });
-    } catch (e) { Alert.alert("Error", "Upload failed."); } 
+    } catch (e) { 
+      console.error(e);
+      Alert.alert("Error", "Upload failed. Please try again."); 
+    } 
     finally { setUploading(false); }
   };
 
@@ -207,7 +245,6 @@ export default function EditProfileScreen() {
     setDraft((prev) => ({ ...prev, photos: newPhotos }));
   };
 
-  // --- MANUAL OVERRIDE RENDER FUNCTION ---
   const renderGridItem = ({ item, drag, isActive, getIndex }: RenderItemParams<GridItem>) => {
     if (item.type === 'add') {
       return (
@@ -231,13 +268,12 @@ export default function EditProfileScreen() {
         onPress={() => !isActive && setSelectedPhotoIndex(getIndex() || 0)}
         disabled={isActive || uploading}
         delayLongPress={100}
-        activeOpacity={1} // Disable default press opacity
+        activeOpacity={1}
         style={[
           styles.photoSlotWrapper,
           { 
             marginBottom: GAP, 
             marginRight: GAP,
-            // MANUAL GHOST LOGIC:
             transform: [{ scale: isActive ? 1.1 : 1 }],
             opacity: isActive ? 0.7 : 1,
             zIndex: isActive ? 9999 : 1,
@@ -247,15 +283,13 @@ export default function EditProfileScreen() {
       >
         <View style={[
           styles.photoContent,
-          // MANUAL BORDER LOGIC:
           isActive && { 
             borderColor: '#F0E4C1', 
             borderWidth: 2,
-            backgroundColor: '#111C2A', // Needed for shadow on Android
+            backgroundColor: '#111C2A',
           }
         ]}>
           <Image source={{ uri: item.uri }} style={styles.photoImage} />
-          
           {!isActive && isFirst && (
             <View style={styles.profileBadge}>
               <Text style={styles.profileBadgeText}>profile</Text>
