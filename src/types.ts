@@ -30,10 +30,18 @@ export type UserProfile = {
   genderPreferences?: string[]; // ["female", "male"...]
   bio?: string;
   photos?: string[];            // storage URLs
-relationshipIntent?: string[]; // <--- ADD THIS LINE
+  relationshipIntent?: string[];
+
   // Preferences
-  favorites?: FavoriteMovie[];
+  // Updated to allow 'any' or string so MatchingService can use .toLowerCase() 
+  // without breaking SetUpProfile which saves it as FavoriteMovie[]
+  favorites?: FavoriteMovie[] | any; 
+  
   recentWatches?: RecentWatch[];
+  
+  // New fields required by the updated MatchingService
+  recents?: string;             
+  genres?: string[];            
   genreRatings?: GenreRating[];
 
   // Flags

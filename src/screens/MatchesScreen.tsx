@@ -34,9 +34,12 @@ import {
 import { getAuth } from 'firebase/auth';
 
 import TMDbService from '../services/TMDbService';
+import { MatchingService } from '../services/MatchingService';
+import { FirestoreService } from '../services/FirestoreService';
 import ProfileCard from '../components/ProfileCard';
 import CustomAlert from '../components/CustomAlert';
 import { COLORS } from '../theme';
+import type { UserProfile } from '../types'; // <--- ADDED MISSING IMPORT
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -119,7 +122,6 @@ export default function MatchesScreen() {
       return;
     }
     
-    // Only load matches if the screen is focused to ensure fresh data
     if (isFocused) {
       loadMatches();
     }
@@ -172,6 +174,9 @@ export default function MatchesScreen() {
       if (isRefresh) setRefreshing(true);
       if (!currentUser) return;
 
+      // 1. Get My Profile first
+      const myProfile = await FirestoreService.getUserProfile(currentUser.uid);
+
       const matchesRef = collection(db, 'matches');
       const q1 = query(matchesRef, where('user1Id', '==', currentUser.uid));
       const q2 = query(matchesRef, where('user2Id', '==', currentUser.uid));
@@ -189,13 +194,22 @@ export default function MatchesScreen() {
         try {
           const snap = await getDoc(doc(db, 'users', matchedUserId));
           if (snap.exists()) {
-            const matchedProfile = snap.data();
+            // FIX: Manually inject UID and cast to UserProfile to satisfy TypeScript
+            const rawData = snap.data();
+            const matchedProfile = { ...rawData, uid: snap.id } as UserProfile;
+            
+            // 2. Calculate Real Compatibility
+            let comp = 0;
+            if (myProfile) {
+              comp = MatchingService.calculateCompatibility(myProfile, matchedProfile);
+            }
+
             matchProfiles.push({
               uid: matchedProfile.uid,
               name: matchedProfile.displayName || 'anonymous',
               age: matchedProfile.age,
               city: matchedProfile.city,
-              compatibility: 85,
+              compatibility: comp || 10,
               photo: matchedProfile.photos?.[0],
               photos: matchedProfile.photos || [],
               bio: matchedProfile.bio,
@@ -304,44 +318,55 @@ export default function MatchesScreen() {
     const uidToRemove = selectedMatch.uid;
     const nameToRemove = selectedMatch.name;
 
-    setAlert({
-      visible: true,
-      title: 'remove match?',
-      message: `unmatch with ${nameToRemove}`,
-      buttons: [
-        { 
-          text: 'remove', 
-          style: 'destructive', 
-          onPress: async () => {
-            setAlert({ ...alert, visible: false });
-            try {
-              setNewMatches((prev) => prev.filter((m) => m.uid !== uidToRemove));
-              setProfileModalOpen(false);
-              const sortedIds = [currentUser.uid, uidToRemove].sort();
-              const matchId = `match_${sortedIds[0]}_${sortedIds[1]}`;
-              await deleteDoc(doc(db, 'matches', matchId));
-              setSelectedMatch(null);
-            } catch (e) {
-              console.log('Error removing match:', e);
+    // FIX: Close the Profile Modal first to avoid "Modal over Modal" conflict
+    setProfileModalOpen(false);
+
+    // Add a small delay to let the modal closing animation finish before showing Alert
+    setTimeout(() => {
+      setAlert({
+        visible: true,
+        title: 'remove match?',
+        message: `unmatch with ${nameToRemove}`,
+        buttons: [
+          { 
+            text: 'remove', 
+            style: 'destructive', 
+            onPress: async () => {
+              setAlert({ ...alert, visible: false });
+              try {
+                setNewMatches((prev) => prev.filter((m) => m.uid !== uidToRemove));
+                // setProfileModalOpen(false); // No longer needed here
+                const sortedIds = [currentUser.uid, uidToRemove].sort();
+                const matchId = `match_${sortedIds[0]}_${sortedIds[1]}`;
+                await deleteDoc(doc(db, 'matches', matchId));
+                setSelectedMatch(null);
+              } catch (e) {
+                console.log('Error removing match:', e);
+              }
             }
+          },
+          { 
+            text: 'cancel', 
+            style: 'cancel', 
+            onPress: () => setAlert({ ...alert, visible: false }) 
           }
-        },
-        { 
-          text: 'cancel', 
-          style: 'cancel', 
-          onPress: () => setAlert({ ...alert, visible: false }) 
-        }
-      ]
-    });
+        ]
+      });
+    }, 300);
   };
 
   const renderCardFooter = () => (
-    <View style={styles.modalButtons}>
-      <TouchableOpacity style={[styles.modalBtn, styles.secondaryBtn]} onPress={onRemoveMatch}>
-        <Text style={styles.modalBtnText}>remove</Text>
-      </TouchableOpacity>
-      <TouchableOpacity style={[styles.modalBtn, styles.primaryBtn]} onPress={onStartChat}>
-        <Text style={styles.modalBtnText}>chat</Text>
+    <View style={{ width: '100%', alignItems: 'center' }}>
+      <View style={styles.modalButtons}>
+        <TouchableOpacity style={[styles.modalBtn, styles.secondaryBtn]} onPress={onRemoveMatch}>
+          <Text style={styles.modalBtnText}>remove</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={[styles.modalBtn, styles.primaryBtn]} onPress={onStartChat}>
+          <Text style={styles.modalBtnText}>chat</Text>
+        </TouchableOpacity>
+      </View>
+      <TouchableOpacity onPress={() => setProfileModalOpen(false)} style={{ marginTop: 16 }}>
+        <Text style={styles.closeModalText}>close preview</Text>
       </TouchableOpacity>
     </View>
   );
@@ -638,7 +663,7 @@ const styles = StyleSheet.create({
 
   modalOverlay: { 
     flex: 1, 
-    backgroundColor: 'rgba(17,28,42,0.95)', 
+    backgroundColor: 'rgba(17,28,42,0.98)', 
     justifyContent: 'center', 
     alignItems: 'center' 
   },
@@ -671,5 +696,12 @@ const styles = StyleSheet.create({
     fontWeight: '700', 
     fontSize: 16, 
     textTransform: 'lowercase' 
+  },
+  // Added new style for the close text
+  closeModalText: {
+    color: 'rgba(240,228,193,0.5)',
+    fontSize: 14,
+    textTransform: 'lowercase',
+    fontWeight: '500'
   },
 });

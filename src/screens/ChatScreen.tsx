@@ -28,6 +28,7 @@ import {
   updateDoc,
   getDoc,
   setDoc,
+  deleteDoc, // <--- Added deleteDoc
   getFirestore,
   arrayUnion,
   arrayRemove
@@ -145,16 +146,16 @@ export default function ChatScreen() {
       ]);
 
       if (otherProfile) {
-        // Calculate compatibility BEFORE enrichment while arrays are still IDs
         let compatibility = 0;
         if (myProfile) {
-            compatibility = MatchingService.calculateCompatibility(myProfile, otherProfile);
+          compatibility = MatchingService.calculateCompatibility(myProfile, otherProfile);
         }
 
         let enriched = await TMDbService.enrichProfile(otherProfile);
         
-        // Attach the calculated compatibility to the enriched object
-        enriched = { ...enriched, compatibility: compatibility || 0 };
+        const finalComp = compatibility > 0 ? compatibility : ((otherProfile as any).compatibility || 0);
+
+        enriched = { ...enriched, compatibility: finalComp };
         
         setOtherUser(enriched);
       }
@@ -215,19 +216,22 @@ export default function ChatScreen() {
     }
   };
 
-const handleReportPress = () => {
-  setAlert({
-    visible: true,
-    title: 'report user',
-    message: 'select a reason',
-    buttons: [
-      { text: 'inappropriate', style: 'destructive', onPress: () => { submitReport('inappropriate'); }},
-      { text: 'spam', style: 'destructive', onPress: () => { submitReport('spam'); }},
-      { text: 'harassment', style: 'destructive', onPress: () => { submitReport('harassment'); }},
-      { text: 'cancel', style: 'cancel', onPress: () => setAlert({ ...alert, visible: false }) },
-    ]
-  });
-};
+  // --- REPORTING & BLOCKING LOGIC ---
+
+  const handleReportPress = () => {
+    setAlert({
+      visible: true,
+      title: 'report user',
+      message: 'select a reason',
+      buttons: [
+        { text: 'inappropriate', style: 'destructive', onPress: () => { submitReport('inappropriate'); }},
+        { text: 'spam', style: 'destructive', onPress: () => { submitReport('spam'); }},
+        { text: 'harassment', style: 'destructive', onPress: () => { submitReport('harassment'); }},
+        { text: 'cancel', style: 'cancel', onPress: () => setAlert({ ...alert, visible: false }) },
+      ]
+    });
+  };
+
   const submitReport = async (reason: string) => {
     if (!currentUser || !otherUser) return;
     try {
@@ -300,9 +304,59 @@ const handleReportPress = () => {
     }
   };
 
+  // --- UNMATCH LOGIC ---
+
+  const handleRemoveMatch = () => {
+    if (!currentUser || !otherUser) return;
+    setProfileModalVisible(false); // Close profile first
+
+    setTimeout(() => {
+        setAlert({
+            visible: true,
+            title: 'remove match?',
+            message: `unmatch with ${otherUser.displayName || 'this user'}?`,
+            buttons: [
+              { 
+                text: 'remove', 
+                style: 'destructive', 
+                onPress: async () => {
+                  setAlert({ ...alert, visible: false });
+                  try {
+                    const sortedIds = [currentUser.uid, otherUser.uid].sort();
+                    const matchId = `match_${sortedIds[0]}_${sortedIds[1]}`;
+                    await deleteDoc(doc(db, 'matches', matchId));
+                    navigation.goBack(); // Return to matches list
+                  } catch (e) {
+                    console.error('Error removing match:', e);
+                  }
+                }
+              },
+              { 
+                text: 'cancel', 
+                style: 'cancel', 
+                onPress: () => setAlert({ ...alert, visible: false }) 
+              }
+            ]
+        });
+    }, 300);
+  };
+
+  const renderCardFooter = () => (
+    <View style={styles.modalButtons}>
+      <TouchableOpacity style={[styles.modalBtn, styles.secondaryBtn]} onPress={handleRemoveMatch}>
+        <Text style={styles.modalBtnText}>remove match</Text>
+      </TouchableOpacity>
+      <TouchableOpacity style={[styles.modalBtn, styles.primaryBtn]} onPress={() => setProfileModalVisible(false)}>
+        <Text style={styles.modalBtnText}>close</Text>
+      </TouchableOpacity>
+    </View>
+  );
+
+  // --- RENDER ---
+
   const renderMessage = ({ item, index }: { item: Message; index: number }) => {
     const isMyMessage = item.senderId === currentUser?.uid;
-    const showTime = index === 0 || (messages[index - 1]?.senderId !== item.senderId);
+    const showTime = true;
 
     return (
       <View style={[styles.messageContainer, isMyMessage ? styles.myMessageContainer : styles.theirMessageContainer]}>
@@ -368,7 +422,15 @@ const handleReportPress = () => {
 
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0} style={styles.keyboardView}>
         <View style={styles.inputContainer}>
-            <TextInput value={inputText} onChangeText={setInputText} placeholder="type a message..." placeholderTextColor="rgba(240,228,193,0.5)" style={styles.input} multiline maxLength={500} editable={!sending} />
+            <TextInput 
+              value={inputText} 
+              onChangeText={setInputText} 
+              placeholder="type a message..." 
+              placeholderTextColor="rgba(240,228,193,0.5)" 
+              style={styles.input} 
+              multiline 
+              maxLength={500} 
+            />
             <TouchableOpacity onPress={handleSend} disabled={!inputText.trim() || sending} style={[styles.sendButton, (!inputText.trim() || sending) && styles.sendButtonDisabled]}>
             {sending ? <ActivityIndicator size="small" color={COLORS.text} /> : <Text style={styles.sendButtonText}>send</Text>}
             </TouchableOpacity>
@@ -378,21 +440,28 @@ const handleReportPress = () => {
       <Modal visible={profileModalVisible} animationType="fade" transparent={true} onRequestClose={() => setProfileModalVisible(false)}>
          <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setProfileModalVisible(false)}>
             <View style={styles.modalCenter} onStartShouldSetResponder={() => true}>
-                 <ProfileCard profile={otherUser} isPreview={true} onClose={() => setProfileModalVisible(false)} />
+                 <ProfileCard 
+                   // Hide intent by masking it undefined
+                   profile={otherUser ? { ...otherUser, relationshipIntent: undefined } : null} 
+                   isPreview={false}
+                   footer={renderCardFooter()} // <--- Pass the footer here
+                   onClose={() => setProfileModalVisible(false)} 
+                 />
             </View>
          </TouchableOpacity>
       </Modal>
-<CustomAlert 
-  visible={menuVisible} 
-  title="options"
-  message={otherUser?.displayName || 'Chat'}
-  buttons={[
-    { text: 'report user', style: 'destructive', onPress: handleReportPress },
-    { text: 'block user', style: 'destructive', onPress: handleBlockPress },
-    { text: 'cancel', style: 'cancel', onPress: () => setMenuVisible(false) }
-  ]}
-  onRequestClose={() => setMenuVisible(false)}
-/>
+
+      <CustomAlert 
+        visible={menuVisible} 
+        title="options"
+        message={otherUser?.displayName || 'Chat'}
+        buttons={[
+          { text: 'report user', style: 'destructive', onPress: handleReportPress },
+          { text: 'block user', style: 'destructive', onPress: handleBlockPress },
+          { text: 'cancel', style: 'cancel', onPress: () => setMenuVisible(false) }
+        ]}
+        onRequestClose={() => setMenuVisible(false)}
+      />
 
       <CustomAlert visible={alert.visible} title={alert.title} message={alert.message} buttons={alert.buttons} onRequestClose={() => setAlert({ ...alert, visible: false })} />
     </SafeAreaView>
@@ -446,4 +515,32 @@ const styles = StyleSheet.create({
 
   modalOverlay: { flex: 1, backgroundColor: 'rgba(17,28,42,0.95)', justifyContent: 'center', alignItems: 'center' },
   modalCenter: { justifyContent: 'center', alignItems: 'center' },
-})
+  
+  // Added styles for the modal buttons
+  modalButtons: { 
+    flexDirection: 'row', 
+    gap: 12, 
+    marginTop: 10, 
+    width: '100%' 
+  },
+  modalBtn: { 
+    flex: 1, 
+    paddingVertical: 14, 
+    borderRadius: 12, 
+    alignItems: 'center', 
+    borderWidth: 1 
+  },
+  primaryBtn: { 
+    backgroundColor: COLORS.button, 
+    borderColor: COLORS.button 
+  },
+  secondaryBtn: { 
+    borderColor: 'rgba(240,228,193,0.3)' 
+  },
+  modalBtnText: { 
+    color: COLORS.text, 
+    fontWeight: '700', 
+    fontSize: 16, 
+    textTransform: 'lowercase' 
+  },
+});

@@ -173,7 +173,7 @@ export default function ProfileCard({ profile, isPreview = false, footer, onClos
       {/* Footer / Buttons */}
       {footer ? (
         <View style={{ marginTop: 20 }}>{footer}</View>
-      ) : isPreview && onClose ? (
+      ) : onClose ? ( // FIX: Allow showing close button even if isPreview is false
         <View style={{ marginTop: 20, alignItems: 'center' }}>
           <TouchableOpacity onPress={onClose} style={s.closeBtn}>
             <Text style={s.closeText}>close preview</Text>

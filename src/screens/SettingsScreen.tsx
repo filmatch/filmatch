@@ -79,7 +79,7 @@ export default function SettingsScreen() {
       },
     },
     {
-      label: 'edit preferences',
+      label: 'edit my films',
       onPress: () => {
         logTree?.();
         navigateNested('MainApp', 'EditPreferences');

@@ -1,7 +1,13 @@
-// src/services/MatchingService.ts
-import { getFirestore, collection, query, where, getDocs, limit } from 'firebase/firestore';
+import { 
+  getFirestore, 
+  collection, 
+  query, 
+  where, 
+  getDocs, 
+  limit,
+  QueryConstraint 
+} from 'firebase/firestore';
 import type { UserProfile } from '../types';
-import TMDbService from './TMDbService';
 
 export class MatchingService {
   private static db = getFirestore();
@@ -11,86 +17,262 @@ export class MatchingService {
     currentUserGender: string,
     genderPreferences: string[],
     currentUserIntent: string[], 
+    currentUserProfile: UserProfile,
     userCity?: string,
     maxResults: number = 20
   ): Promise<UserProfile[]> {
     try {
-      // --- 1. ARGUMENT SAFETY CHECK (Fixes the crash) ---
-      // If the caller hasn't been updated, 'currentUserIntent' might be the city string.
-      let safeIntent: string[] = [];
-      let safeCity = userCity;
-
-      if (Array.isArray(currentUserIntent)) {
-        safeIntent = currentUserIntent;
-      } else if (typeof currentUserIntent === 'string') {
-        // Argument mismatch detected: intent slot received a string (likely the city)
-        console.warn("MatchingService: Arguments mismatched. Fixing automatically.");
-        safeCity = currentUserIntent; // Move the string to city
-        safeIntent = []; // Reset intent
-      }
-
-      // Default fallback if empty
+      // --- SAFEGUARDS ---
+      let safeIntent: string[] = Array.isArray(currentUserIntent) ? currentUserIntent : [];
       if (!safeIntent || safeIntent.length === 0) {
-        // If no intent is found, default to both so we show SOMETHING
         safeIntent = ['friends', 'romance'];
       }
 
-      // Safety fallback for gender prefs
       let safePrefs = genderPreferences;
       if (!safePrefs || safePrefs.length === 0) {
         safePrefs = currentUserGender === 'male' ? ['female'] : ['male'];
       }
 
-      console.log(`Finding matches for ${currentUserId}. Intent: ${safeIntent}, City: ${safeCity}`);
-      // ---------------------------------------------------
-
       const usersRef = collection(this.db, 'users');
-      let snapshot;
       
-      const constraints = [
+      // Basic DB Constraints (optimizes the fetch)
+      // We still filter strictly in memory, but this reduces data over the wire
+      const baseConstraints: QueryConstraint[] = [
         where('hasProfile', '==', true),
-        where('gender', 'in', safePrefs),
-        where('relationshipIntent', 'array-contains-any', safeIntent) 
+        where('hasPreferences', '==', true),
+        where('gender', 'in', safePrefs) // Rule 1a: They must be a gender I want
       ];
 
-      // Try to find people in the same city first
-      if (safeCity) {
+      let allCandidates: UserProfile[] = [];
+
+      // --- FETCHING STRATEGY ---
+      
+      // 1. Try city-based query first
+      if (userCity) {
         try {
-          const qCity = query(
+          const cityQuery = query(
             usersRef,
-            ...constraints,
-            where('city', '==', safeCity),
-            limit(50)
+            ...baseConstraints,
+            where('city', '==', userCity),
+            limit(100)
           );
-          snapshot = await getDocs(qCity);
+          const citySnapshot = await getDocs(cityQuery);
+          allCandidates = citySnapshot.docs.map(doc => doc.data() as UserProfile);
         } catch (e) {
-          console.warn('City query failed or returned empty, falling back to global.');
+          console.warn('City query failed:', e);
         }
       }
 
-      // Global fallback if city found no one
-      if (!snapshot || snapshot.empty || snapshot.size < 2) {
-        const qGlobal = query(usersRef, ...constraints, limit(50));
-        snapshot = await getDocs(qGlobal);
+      // 2. If not enough city matches, get global results
+      if (allCandidates.length < 30) {
+        try {
+          const globalQuery = query(usersRef, ...baseConstraints, limit(100));
+          const globalSnapshot = await getDocs(globalQuery);
+          const globalCandidates = globalSnapshot.docs.map(doc => doc.data() as UserProfile);
+          
+          const existingIds = new Set(allCandidates.map(u => u.uid));
+          globalCandidates.forEach(candidate => {
+            if (!existingIds.has(candidate.uid)) {
+              allCandidates.push(candidate);
+            }
+          });
+        } catch (e) {
+          console.error('Global query failed:', e);
+        }
       }
 
+      // 3. Get already swiped users to exclude them
       const alreadySwipedIds = await this.getSwipedUserIds(currentUserId);
       
-      const matches = snapshot.docs
-        .map(doc => doc.data() as UserProfile)
+      // --- LAYER 1: ABSOLUTE FILTERING ---
+      const filteredAndScored = allCandidates
         .filter(user => {
+          // Rule 3: Self & Swipe Filter
           if (user.uid === currentUserId) return false;
           if (alreadySwipedIds.includes(user.uid)) return false;
+          
+          // Rule 1b: Bidirectional Gender Check
+          // (Database checked if they match MY prefs. Now check if I match THEIR prefs.)
+          const theirPrefs = user.genderPreferences || [];
+          if (theirPrefs.length > 0 && !theirPrefs.includes(currentUserGender)) {
+            return false;
+          }
+
+          // Rule 2: Relationship Intent Overlap
+          // Must share at least one intent
+          const userIntents = user.relationshipIntent || [];
+          const hasSharedIntent = safeIntent.some(intent => userIntents.includes(intent));
+          if (!hasSharedIntent) return false;
+
           return true;
         })
-        .slice(0, maxResults);
+        .map(user => {
+          // --- LAYER 3: COMPATIBILITY SCORING ---
+          const score = this.calculateCompatibility(currentUserProfile, user);
+          
+          return {
+            user,
+            compatibility: score,
+            isSameCity: userCity && user.city === userCity
+          };
+        });
 
-      return matches;
+      // --- LAYER 2: SORTING ---
+      // 1) Same-city users FIRST
+      // 2) Then sort by highest compatibility score
+      filteredAndScored.sort((a, b) => {
+        // Priority 1: City
+        if (a.isSameCity && !b.isSameCity) return -1;
+        if (!a.isSameCity && b.isSameCity) return 1;
+        
+        // Priority 2: Score (Highest first)
+        return b.compatibility - a.compatibility;
+      });
+
+      // Return final list
+      return filteredAndScored.slice(0, maxResults).map(item => ({
+        ...item.user,
+        compatibility: item.compatibility
+      }));
 
     } catch (error) {
       console.error('Matching error:', error);
       return [];
     }
+  }
+
+  // --- LAYER 3: COMPATIBILITY SCORE (MOVIE DATA ONLY) ---
+  static calculateCompatibility(user1: UserProfile, user2: UserProfile): number {
+    
+    // Helper to normalize movie lists (handles objects with IDs or titles, and plain strings)
+    const getMovieIds = (list: any[]): Set<number | string> => {
+      const ids = new Set<number | string>();
+      if (!Array.isArray(list)) return ids;
+      
+      list.forEach(item => {
+        if (!item) return;
+        if (item.id) {
+          ids.add(item.id);
+        } else if (item.title) {
+          ids.add(String(item.title).trim().toLowerCase());
+        } else if (typeof item === 'string') {
+          ids.add(item.trim().toLowerCase());
+        }
+      });
+      return ids;
+    };
+
+    // ------------------------------------------
+    // A) GENRE RATING SIMILARITY (0–40 points)
+    // ------------------------------------------
+    let genreScore = 0;
+    
+    const u1Ratings = Array.isArray(user1.genreRatings) ? user1.genreRatings : [];
+    const u2Ratings = Array.isArray(user2.genreRatings) ? user2.genreRatings : [];
+
+    if (u1Ratings.length > 0 && u2Ratings.length > 0) {
+      // Map User 2's ratings for O(1) lookup
+      const u2Map = new Map<string, number>();
+      u2Ratings.forEach(r => {
+        if (r.genre && typeof r.rating === 'number') {
+          u2Map.set(r.genre, r.rating);
+        }
+      });
+
+      let totalDiff = 0;
+      let sharedCount = 0;
+
+      for (const r1 of u1Ratings) {
+        if (r1.genre && typeof r1.rating === 'number' && u2Map.has(r1.genre)) {
+          const r2Val = u2Map.get(r1.genre) as number;
+          // diff = |rating1 - rating2| / 4  (0 to 1)
+          const diff = Math.abs(r1.rating - r2Val) / 4;
+          totalDiff += diff;
+          sharedCount++;
+        }
+      }
+
+      if (sharedCount > 0) {
+        const avgDiff = totalDiff / sharedCount;
+        // similarity = 1 - avgDiff
+        genreScore = Math.round((1 - avgDiff) * 40);
+      }
+    }
+
+    // ------------------------------------------
+    // B) FILM OVERLAP (0–40 points)
+    // ------------------------------------------
+    let filmScore = 0;
+
+    const u1Favs = getMovieIds(user1.favorites);
+    const u1Recents = getMovieIds(user1.recentWatches);
+    const u2Favs = getMovieIds(user2.favorites);
+    const u2Recents = getMovieIds(user2.recentWatches);
+
+    // All movies User 1 has interacted with
+    const allU1Movies = new Set([...u1Favs, ...u1Recents]);
+    
+    // Find movies that appear in User 2's lists
+    const sharedMovies = [...allU1Movies].filter(m => u2Favs.has(m) || u2Recents.has(m));
+
+    let totalOverlapPoints = 0;
+
+    for (const movieId of sharedMovies) {
+      let points = 0;
+      const inU1Fav = u1Favs.has(movieId);
+      const inU1Rec = u1Recents.has(movieId);
+      const inU2Fav = u2Favs.has(movieId);
+      const inU2Rec = u2Recents.has(movieId);
+
+      // Scoring hierarchy
+      if (inU1Fav && inU2Fav) {
+        points = 8; // favorite–favorite
+      } else if (inU1Fav && inU2Rec) {
+        points = 5; // favorite–recent
+      } else if (inU1Rec && inU2Fav) {
+        points = 4; // recent–favorite
+      } else if (inU1Rec && inU2Rec) {
+        points = 2; // recent–recent
+      }
+      
+      totalOverlapPoints += points;
+    }
+
+    // Cap Overlap at 40
+    filmScore = Math.min(totalOverlapPoints, 40);
+
+    // ------------------------------------------
+    // C) DISCOVERY VIBE (0–20 points)
+    // ------------------------------------------
+    let discoveryScore = 0;
+
+    // 1. My recents in their favorites? (+10)
+    let u1RecInU2Fav = false;
+    for (const m of u1Recents) {
+      if (u2Favs.has(m)) {
+        u1RecInU2Fav = true;
+        break;
+      }
+    }
+    if (u1RecInU2Fav) discoveryScore += 10;
+
+    // 2. Their recents in my favorites? (+10)
+    let u2RecInU1Fav = false;
+    for (const m of u2Recents) {
+      if (u1Favs.has(m)) {
+        u2RecInU1Fav = true;
+        break;
+      }
+    }
+    if (u2RecInU1Fav) discoveryScore += 10;
+
+    // ------------------------------------------
+    // FINAL CALCULATION
+    // ------------------------------------------
+    const totalScore = genreScore + filmScore + discoveryScore;
+    
+    // Clamp between 10 and 99
+    return Math.max(10, Math.min(99, Math.round(totalScore)));
   }
 
   private static async getSwipedUserIds(currentUserId: string): Promise<string[]> {
@@ -113,46 +295,5 @@ export class MatchingService {
       console.error("Error fetching swipe history:", error);
       return []; 
     }
-  }
-
-  static calculateCompatibility(user1: UserProfile, user2: UserProfile): number {
-    let score = 0;
-    let totalWeight = 0;
-
-    if (user1.genreRatings?.length && user2.genreRatings?.length) {
-      const u1High = user1.genreRatings.filter(g => g.rating >= 4).map(g => g.genre);
-      const u2High = user2.genreRatings.filter(g => g.rating >= 4).map(g => g.genre);
-      
-      const intersection = u1High.filter(g => u2High.includes(g)).length;
-      const union = new Set([...u1High, ...u2High]).size;
-      
-      const genreScore = union === 0 ? 0 : (intersection / union);
-      score += genreScore * 50;
-      totalWeight += 50;
-    }
-
-    if (user1.favorites?.length && user2.favorites?.length) {
-      const u1Ids = user1.favorites.map(f => String(f.id).replace('fav_', '').split('_')[0]);
-      const u2Ids = user2.favorites.map(f => String(f.id).replace('fav_', '').split('_')[0]);
-      
-      const favMatch = u1Ids.filter(id => u2Ids.includes(id)).length;
-      const favScore = Math.min(favMatch * 0.5, 1); 
-      score += favScore * 20;
-      totalWeight += 20;
-    }
-
-    if (user1.age && user2.age) {
-      const diff = Math.abs(user1.age - user2.age);
-      let ageScore = 0;
-      if (diff <= 2) ageScore = 1;
-      else if (diff <= 5) ageScore = 0.8;
-      else if (diff <= 10) ageScore = 0.5;
-      
-      score += ageScore * 30;
-      totalWeight += 30;
-    }
-
-    if (totalWeight === 0) return 60; 
-    return Math.max(10, Math.min(99, Math.round(score)));
   }
 }
