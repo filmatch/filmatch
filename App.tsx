@@ -17,7 +17,6 @@ import { navigationRef } from './src/navigation/RootNavigation';
 import { auth } from './config/firebase'; 
 
 // --- NOTIFICATION HANDLER CONFIG ---
-// Fixed: Added shouldShowBanner and shouldShowList to satisfy newer expo-notifications types
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
     shouldShowAlert: true,
@@ -52,7 +51,6 @@ export default function App() {
   const [initializing, setInitializing] = useState(true);
   const [user, setUser] = useState<User | null>(null);
   
-  // Fixed: Initialized with null to satisfy TypeScript
   const responseListener = useRef<Notifications.Subscription | null>(null);
 
   useEffect(() => {
@@ -63,7 +61,7 @@ export default function App() {
     });
 
     // 2. Notification Click Listener
-responseListener.current = Notifications.addNotificationResponseReceivedListener(response => {
+    responseListener.current = Notifications.addNotificationResponseReceivedListener(response => {
       const data = response.notification.request.content.data;
       console.log("🔔 NOTIFICATION CLICKED:", JSON.stringify(data));
 
@@ -78,10 +76,6 @@ responseListener.current = Notifications.addNotificationResponseReceivedListener
       } 
       else if (data?.type === 'match') {
          console.log("➡️ Attempting to navigate to Matches");
-         
-         // TRY THIS: If 'Matches' is inside a Tab Navigator, you might need to navigate to the Tab first.
-         // Example: navigationRef.navigate('MainTabs', { screen: 'Matches' });
-         
          // @ts-ignore
          navigationRef.navigate('Matches'); 
       }
@@ -89,7 +83,6 @@ responseListener.current = Notifications.addNotificationResponseReceivedListener
 
     return () => {
       unsubscribeAuth();
-      // Fixed: Used .remove() instead of removeNotificationSubscription
       if (responseListener.current) {
         responseListener.current.remove();
       }

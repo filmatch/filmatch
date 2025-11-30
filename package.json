@@ -23,6 +23,7 @@
     "expo-status-bar": "~3.0.8",
     "expo-vector-icons": "^10.0.1",
     "firebase": "^12.6.0",
+    "firebase-admin": "^13.6.0",
     "lodash": "^4.17.21",
     "react": "19.1.0",
     "react-native": "0.81.4",

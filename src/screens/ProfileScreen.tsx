@@ -17,6 +17,7 @@ import {
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
+import { getAuth } from 'firebase/auth'; // <--- ADDED IMPORT
 import { FirebaseAuthService } from '../services/FirebaseAuthService';
 import { FirestoreService } from '../services/FirestoreService';
 import TMDbService from '../services/TMDbService';
@@ -30,12 +31,14 @@ export default function ProfileScreen() {
   const [userProfile, setUserProfile] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
   const [previewVisible, setPreviewVisible] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false); // <--- NEW STATE
 
   const nav = useNavigation();
   const starFontFamily = Platform.select({ ios: 'System', android: 'sans-serif' });
 
   useEffect(() => {
     loadUserProfile();
+    checkAdminStatus(); // <--- NEW CHECK
   }, []);
 
   useFocusEffect(
@@ -45,6 +48,17 @@ export default function ProfileScreen() {
       }
     }, [loading])
   );
+
+  // --- NEW FUNCTION TO CHECK ADMIN ---
+  const checkAdminStatus = async () => {
+    const auth = getAuth();
+    if (auth.currentUser) {
+      const token = await auth.currentUser.getIdTokenResult();
+      if (token.claims.role === 'admin') {
+        setIsAdmin(true);
+      }
+    }
+  };
 
   const loadUserProfile = async () => {
     try {
@@ -281,11 +295,21 @@ export default function ProfileScreen() {
           </View>
         </View>
 
-        {/* SETTINGS BUTTON (Updated to be Red/Primary) */}
+        {/* SETTINGS & ADMIN BUTTONS */}
         <View style={styles.actionsContainer}>
           <TouchableOpacity style={styles.settingsButton} onPress={handleSettings}>
             <Text style={styles.settingsButtonText}>settings</Text>
           </TouchableOpacity>
+
+          {/* --- ADMIN BUTTON (Only visible if isAdmin is true) --- */}
+          {isAdmin && (
+            <TouchableOpacity 
+              style={[styles.settingsButton, { backgroundColor: 'transparent', borderWidth: 1, borderColor: '#511619', marginTop: 10 }]} 
+              onPress={() => nav.navigate('Admin' as never)}
+            >
+              <Text style={[styles.settingsButtonText, { color: '#F0E4C1' }]}>admin dashboard</Text>
+            </TouchableOpacity>
+          )}
         </View>
 
       </ScrollView>

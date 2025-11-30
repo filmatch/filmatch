@@ -14,13 +14,12 @@ import ProfileScreen from '../screens/ProfileScreen';
 import EditProfileScreen from '../screens/EditProfileScreen';
 import EditPreferencesScreen from '../screens/EditPreferencesScreen';
 import ChatScreen from '../screens/ChatScreen';
-import SetUpProfileScreen from '../screens/SetUpProfileScreen'; // Keep import for type safety if necessary
+import SetUpProfileScreen from '../screens/SetUpProfileScreen'; 
 import KVKKScreen from '../screens/KVKKScreen';
+import AdminScreen from '../screens/AdminScreen'; // <--- NEW IMPORT
 
 import { Movie } from '../types';
 import { SearchIcon, HeartIcon, ChatIcon, ProfileIcon, BellIcon } from '../components/icons/MinimalIcons';
-
-// --- START: MODIFIED CODE ---
 
 export type RootStackParamList = {
   MainTabs: undefined;
@@ -31,13 +30,12 @@ export type RootStackParamList = {
   // REMOVED SetUpProfile: It should only be navigated to by AuthNavigator for mandatory initial setup.
   // SetUpProfile: undefined; 
   KVKK: undefined;
+  Admin: undefined; // <--- NEW ROUTE
 };
 
 const Tab = createBottomTabNavigator();
 // Ensure the Stack uses the updated RootStackParamList
 const Stack = createStackNavigator<RootStackParamList>(); 
-
-// --- END: MODIFIED CODE ---
 
 const BG = '#111C2A';
 const ACTIVE = '#511619';
@@ -141,13 +139,11 @@ export default function MainApp() {
           headerLeft: () => null,
         }}
       />
-      {/* --- START: MODIFIED CODE --- */}
-      {/* REMOVED: SetUpProfileScreen should ONLY be mounted/rendered by AuthNavigator, not available for general app navigation. */}
+      {/* SetUpProfileScreen logic preserved as commented out from original file */}
       {/* <Stack.Screen name="SetUpProfile" component={SetUpProfileScreen} options={{
         gestureEnabled: false,
         headerLeft: () => null,
       }} /> */}
-      {/* --- END: MODIFIED CODE --- */}
       <Stack.Screen
         name="EditPreferences" 
         component={EditPreferencesScreen}
@@ -155,6 +151,8 @@ export default function MainApp() {
           gestureEnabled: false,
         }}
       />
+      {/* --- NEW ADMIN SCREEN REGISTERED --- */}
+      <Stack.Screen name="Admin" component={AdminScreen} />
     </Stack.Navigator>
   );
 }

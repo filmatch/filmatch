@@ -52,6 +52,7 @@ type MatchProfile = {
   favorites: Poster[];
   recentWatches: Recent[];
   genreRatings?: GenreRating[];
+  isHidden?: boolean; // <--- ADDED: To support hiding admins
 };
 
 // --- HELPER FOR IMAGES ---
@@ -181,11 +182,16 @@ export default function SwipeScreen() {
         myProfile.city as string
       );
 
-      if (matches.length === 0) {
+      // --- FILTER START ---
+      // Filter out any users who have isHidden set to true (e.g. Admins)
+      const visibleMatches = matches.filter((p: any) => !p.isHidden);
+      // --- FILTER END ---
+
+      if (visibleMatches.length === 0) {
         setError('no new people nearby');
       } else {
         // 3. CALCULATE REAL COMPATIBILITY & SORT
-        const processedMatches = matches.map(p => {
+        const processedMatches = visibleMatches.map((p: any) => {
             const realScore = MatchingService.calculateCompatibility(myProfile, p);
             return {
                 ...p,
@@ -366,7 +372,7 @@ export default function SwipeScreen() {
       
       {showMatchIndicator && (
         <View style={styles.matchIndicator}>
-          <Text style={styles.matchIndicatorText}>🎉 it's a match!</Text>
+          <Text style={styles.matchIndicatorText}> it's a match!</Text>
         </View>
       )}
 
