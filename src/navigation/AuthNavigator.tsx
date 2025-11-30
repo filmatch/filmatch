@@ -69,7 +69,6 @@ const VerificationScreen = ({ onRefresh, onLogout }: { onRefresh: () => void, on
 
 // --- 3. MAIN NAVIGATOR LOGIC ---
 export default function AuthNavigator() {
-  // Added 'login' state to handle the direct-to-signin flow
   const [state, setState] = useState<'loading' | 'unauth' | 'login' | 'verification' | 'setupProfile' | 'setupPrefs' | 'auth'>('loading');
   const auth = getAuth();
   
@@ -78,7 +77,7 @@ export default function AuthNavigator() {
   const handleUserLogout = async () => {
     isExplicitLogout.current = true;
     await signOut(auth);
-    setState('unauth'); // Normal logout goes to Welcome
+    setState('unauth'); 
     setTimeout(() => { isExplicitLogout.current = false; }, 1000);
   };
 
@@ -129,9 +128,11 @@ export default function AuthNavigator() {
       if (user) {
         await checkUserStatus(user, false);
       } else {
-        // If it's a normal app launch (no user), go to 'unauth' (Welcome)
-        // If it's a verification glitch, we handle it inside checkUserStatus above
-        if (state !== 'verification' || isExplicitLogout.current) {
+        // FIXED LOGIC:
+        // Only force 'unauth' (Welcome Screen) if we are NOT in 'verification' mode
+        // AND we are NOT in 'login' mode.
+        // This prevents the listener from overwriting our manual redirect to the Login page.
+        if (state !== 'verification' && state !== 'login' && !isExplicitLogout.current) {
            setState('unauth');
         }
       }
@@ -144,16 +145,15 @@ export default function AuthNavigator() {
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
       
-      {/* CASE 1: Standard Unauth OR Direct Login (The Fix) */}
+      {/* CASE 1: Standard Unauth OR Direct Login */}
       {(state === 'unauth' || state === 'login') ? (
         <Stack.Screen 
           name="AuthStack" 
-          // If state is 'login', we skip the Welcome screen logic by just rendering the Auth screen directly
-          // or we can use initialRouteName if we group them. 
-          // Simplified: Just conditionally render the start screen.
         >
           {() => (
             <Stack.Navigator 
+              // FIXED: Added key to force re-render when state changes, ensuring initialRouteName works
+              key={state}
               screenOptions={{ headerShown: false }} 
               initialRouteName={state === 'login' ? 'Auth' : 'Welcome'}
             >
