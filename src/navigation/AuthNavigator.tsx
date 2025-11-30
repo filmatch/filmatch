@@ -1,38 +1,106 @@
 // src/navigation/AuthNavigator.tsx
-import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, View, StyleSheet } from 'react-native';
+import React, { useEffect, useState, useRef } from 'react';
+import { ActivityIndicator, View, StyleSheet, Text, TouchableOpacity, Alert } from 'react-native';
 import { createStackNavigator } from '@react-navigation/stack';
-import { getAuth, reload, type User } from 'firebase/auth';
+import { getAuth, reload, sendEmailVerification, signOut, onAuthStateChanged, type User } from 'firebase/auth';
 
-import { FirebaseAuthService } from '../services/FirebaseAuthService';
 import { FirestoreService } from '../services/FirestoreService';
 
 import WelcomeScreen from '../components/WelcomeScreen';
 import AuthScreen from '../components/AuthScreen';
 import SetUpProfileScreen from '../screens/SetUpProfileScreen';
 import EditPreferencesScreen from '../screens/EditPreferencesScreen';
-import MainApp from './MainApp';
+// ✅ Correct Import
+import MainApp from './MainApp'; 
 import KVKKScreen from '../screens/KVKKScreen'; 
 import SettingsScreen from '../screens/SettingsScreen';
 import BlockedUsersScreen from '../screens/BlockedUsersScreen';
 
 const Stack = createStackNavigator();
+const C = { bg: '#111C2A', text: '#F0E4C1', accent: '#511619' };
 
+// --- 1. LOADING SCREEN ---
 const LoadingScreen = () => (
   <View style={styles.center}>
-    <ActivityIndicator size="large" color="#F0E4C1" />
+    <ActivityIndicator size="large" color={C.text} />
   </View>
 );
 
-export default function AuthNavigator() {
-  const [state, setState] = useState<'loading' | 'unauth' | 'setupProfile' | 'setupPrefs' | 'auth'>('loading');
+// --- 2. VERIFICATION SCREEN (Waiting Room) ---
+const VerificationScreen = ({ onRefresh, onLogout }: { onRefresh: () => void, onLogout: () => void }) => {
+  const [sending, setSending] = useState(false);
   const auth = getAuth();
 
-  const checkUserStatus = async (user: User) => {
+  const handleResend = async () => {
+    if (auth.currentUser) {
+      setSending(true);
+      try {
+        await sendEmailVerification(auth.currentUser);
+        Alert.alert('Sent', 'Check your email (and spam folder)!');
+      } catch (e: any) {
+        Alert.alert('Error', e.message);
+      } finally {
+        setSending(false);
+      }
+    }
+  };
+
+  return (
+    <View style={styles.verifyContainer}>
+      <Text style={styles.verifyTitle}>verify your email</Text>
+      <Text style={styles.verifySub}>
+        we sent a link to {auth.currentUser?.email || 'your email'}.{'\n'}please click it to continue.
+      </Text>
+
+      <TouchableOpacity onPress={onRefresh} style={styles.primaryBtn}>
+        <Text style={styles.btnText}>i've verified (refresh)</Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity onPress={handleResend} disabled={sending} style={styles.secondaryBtn}>
+        <Text style={styles.secondaryText}>{sending ? 'sending...' : 'resend email'}</Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity onPress={onLogout} style={styles.textBtn}>
+        <Text style={styles.textBtnText}>sign out</Text>
+      </TouchableOpacity>
+    </View>
+  );
+};
+
+// --- 3. MAIN NAVIGATOR LOGIC ---
+export default function AuthNavigator() {
+  // Added 'login' state to handle the direct-to-signin flow
+  const [state, setState] = useState<'loading' | 'unauth' | 'login' | 'verification' | 'setupProfile' | 'setupPrefs' | 'auth'>('loading');
+  const auth = getAuth();
+  
+  const isExplicitLogout = useRef(false);
+
+  const handleUserLogout = async () => {
+    isExplicitLogout.current = true;
+    await signOut(auth);
+    setState('unauth'); // Normal logout goes to Welcome
+    setTimeout(() => { isExplicitLogout.current = false; }, 1000);
+  };
+
+  const checkUserStatus = async (user: User | null, shouldReload = false) => {
+    // 1. SAFETY: If session dropped, go directly to LOGIN screen (skip welcome)
+    if (!user) {
+      setState('login');
+      return;
+    }
+
     try {
-      // Reload user to get fresh token/status
-      await reload(user);
+      if (shouldReload) {
+        await reload(user);
+      }
       
+      // 2. Check Verification
+      if (!user.emailVerified) {
+        setState('verification');
+        return;
+      }
+
+      // 3. Fetch Profile
       const profile = await FirestoreService.getUserProfile(user.uid);
       
       if (!profile || !profile.hasProfile) {
@@ -47,59 +115,86 @@ export default function AuthNavigator() {
       
       setState('auth');
     } catch (e) {
-      console.error(e);
-      // If error, default to profile setup to allow recovery
-      setState('setupProfile');
+      console.error("Auth Check Error:", e);
+      if (!user.emailVerified) {
+        setState('verification');
+      } else {
+        setState('setupProfile');
+      }
     }
   };
 
   useEffect(() => {
-    const unsub = FirebaseAuthService.onAuthStateChanged(async (user) => {
+    const unsub = onAuthStateChanged(auth, async (user) => {
       if (user) {
-        await checkUserStatus(user);
+        await checkUserStatus(user, false);
       } else {
-        setState('unauth');
+        // If it's a normal app launch (no user), go to 'unauth' (Welcome)
+        // If it's a verification glitch, we handle it inside checkUserStatus above
+        if (state !== 'verification' || isExplicitLogout.current) {
+           setState('unauth');
+        }
       }
     });
     return unsub;
-  }, []);
+  }, [state]);
 
   if (state === 'loading') return <LoadingScreen />;
 
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
-      {state === 'unauth' ? (
-        // --- UNAUTHENTICATED STATE (Welcome, Login, Sign Up, KVKK) ---
-        <>
-          <Stack.Screen name="Welcome" component={WelcomeScreen} />
-          <Stack.Screen name="Auth" component={AuthScreen} />
-          {/* KVKK MUST BE HERE because AuthScreen links to it */}
-          <Stack.Screen 
-            name="KVKK" 
-            component={KVKKScreen} 
-            options={{ presentation: 'modal' }} 
-          />
-        </>
+      
+      {/* CASE 1: Standard Unauth OR Direct Login (The Fix) */}
+      {(state === 'unauth' || state === 'login') ? (
+        <Stack.Screen 
+          name="AuthStack" 
+          // If state is 'login', we skip the Welcome screen logic by just rendering the Auth screen directly
+          // or we can use initialRouteName if we group them. 
+          // Simplified: Just conditionally render the start screen.
+        >
+          {() => (
+            <Stack.Navigator 
+              screenOptions={{ headerShown: false }} 
+              initialRouteName={state === 'login' ? 'Auth' : 'Welcome'}
+            >
+              <Stack.Screen name="Welcome" component={WelcomeScreen} />
+              <Stack.Screen name="Auth" component={AuthScreen} />
+              <Stack.Screen name="KVKK" component={KVKKScreen} options={{ presentation: 'modal' }} />
+            </Stack.Navigator>
+          )}
+        </Stack.Screen>
+      ) : state === 'verification' ? (
+        <Stack.Screen name="Verification">
+          {() => (
+            <VerificationScreen 
+              onRefresh={() => {
+                if (auth.currentUser) {
+                  checkUserStatus(auth.currentUser, true);
+                } else {
+                  // If session is null when clicking refresh, go straight to Login
+                  setState('login');
+                }
+              }} 
+              onLogout={handleUserLogout} 
+            />
+          )}
+        </Stack.Screen>
       ) : state === 'setupProfile' ? (
-        // --- PROFILE SETUP STATE ---
         <Stack.Screen name="SetUpProfile">
-          {() => <SetUpProfileScreen onComplete={() => checkUserStatus(auth.currentUser!)} />}
+          {() => <SetUpProfileScreen onComplete={() => checkUserStatus(auth.currentUser!, true)} />}
         </Stack.Screen>
       ) : state === 'setupPrefs' ? (
-        // --- PREFERENCES SETUP STATE ---
         <Stack.Screen name="EditPreferences">
           {() => (
             <EditPreferencesScreen 
-              onComplete={() => checkUserStatus(auth.currentUser!)} 
+              onComplete={() => checkUserStatus(auth.currentUser!, true)} 
               onBack={() => setState('setupProfile')}
             />
           )}
         </Stack.Screen>
       ) : (
-        // --- LOGGED IN STATE ---
         <>
           <Stack.Screen name="MainApp" component={MainApp} />
-          {/* MOVED HERE: These screens are only reachable when logged in */}
           <Stack.Screen name="Settings" component={SettingsScreen} />
           <Stack.Screen name="BlockedUsers" component={BlockedUsersScreen} />
         </>
@@ -109,5 +204,14 @@ export default function AuthNavigator() {
 }
 
 const styles = StyleSheet.create({
-  center: { flex: 1, backgroundColor: '#111C2A', alignItems: 'center', justifyContent: 'center' }
+  center: { flex: 1, backgroundColor: C.bg, alignItems: 'center', justifyContent: 'center' },
+  verifyContainer: { flex: 1, backgroundColor: C.bg, alignItems: 'center', justifyContent: 'center', padding: 24 },
+  verifyTitle: { color: C.text, fontSize: 24, fontWeight: 'bold', marginBottom: 12, textTransform: 'lowercase' },
+  verifySub: { color: 'rgba(240, 228, 193, 0.6)', textAlign: 'center', marginBottom: 32, lineHeight: 22 },
+  primaryBtn: { backgroundColor: C.accent, paddingVertical: 14, paddingHorizontal: 24, borderRadius: 12, width: '100%', alignItems: 'center', marginBottom: 12 },
+  btnText: { color: C.text, fontWeight: 'bold', fontSize: 16, textTransform: 'lowercase' },
+  secondaryBtn: { borderColor: 'rgba(240, 228, 193, 0.2)', borderWidth: 1, paddingVertical: 14, paddingHorizontal: 24, borderRadius: 12, width: '100%', alignItems: 'center', marginBottom: 24 },
+  secondaryText: { color: C.text, fontWeight: '600', fontSize: 16, textTransform: 'lowercase' },
+  textBtn: { padding: 12 },
+  textBtnText: { color: 'rgba(240, 228, 193, 0.5)', fontSize: 14, textTransform: 'lowercase' },
 });
