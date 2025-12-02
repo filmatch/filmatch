@@ -19,6 +19,8 @@ import { StatusBar } from 'expo-status-bar';
 import { useNavigation } from '@react-navigation/native';
 import { FirebaseAuthService } from '../services/FirebaseAuthService';
 import { FirestoreService } from '../services/FirestoreService';
+import { doc, setDoc, deleteDoc } from 'firebase/firestore'; 
+import { db } from '../../config/firebase'; 
 import TMDbService, { Movie } from '../services/TMDbService';
 import type { FavoriteMovie, RecentWatch, GenreRating } from '../types';
 
@@ -31,6 +33,11 @@ type EditPreferencesScreenProps = {
   onComplete?: () => void;
   onBack?: () => void;
 };
+
+interface ExtendedRecentWatch extends RecentWatch {
+  tmdbId?: number; 
+  poster_path?: string | null;
+}
 
 export default function EditPreferencesScreen({ onComplete, onBack }: EditPreferencesScreenProps) {
   const navigation = useNavigation(); 
@@ -45,7 +52,9 @@ export default function EditPreferencesScreen({ onComplete, onBack }: EditPrefer
   const [isNewUser, setIsNewUser] = useState(false);
 
   const [favorites, setFavorites] = useState<FavoriteMovie[]>([]);
-  const [recentWatches, setRecentWatches] = useState<RecentWatch[]>([]);
+  const [recentWatches, setRecentWatches] = useState<ExtendedRecentWatch[]>([]);
+  const [initialRecentWatches, setInitialRecentWatches] = useState<ExtendedRecentWatch[]>([]);
+  
   const [genreRatings, setGenreRatings] = useState<GenreRating[]>([]);
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -56,7 +65,7 @@ export default function EditPreferencesScreen({ onComplete, onBack }: EditPrefer
   const [movieToRate, setMovieToRate] = useState<Movie | null>(null);
   const [tempRating, setTempRating] = useState(0);
 
-  // --- FIXED GENRE POSTERS (VERIFIED) ---
+  // --- GENRE POSTERS ---
   const posterSets: Record<string, { title: string; year: string; uri: string }[]> = {
     action: [
       { title: 'mad max: fury road', year: '(2015)', uri: 'https://image.tmdb.org/t/p/w342/8tZYtuWezp8JbcsvHYO0O46tFbo.jpg' },
@@ -154,7 +163,11 @@ export default function EditPreferencesScreen({ onComplete, onBack }: EditPrefer
       
       if (profile) {
         setFavorites(profile.favorites || []);
-        setRecentWatches(profile.recentWatches || []);
+        
+        const recents = (profile.recentWatches as ExtendedRecentWatch[]) || [];
+        setRecentWatches(recents);
+        setInitialRecentWatches(recents); 
+        
         setGenreRatings(profile.genreRatings || []);
         setIsNewUser(!profile.hasPreferences);
       }
@@ -174,6 +187,18 @@ export default function EditPreferencesScreen({ onComplete, onBack }: EditPrefer
     genreRatings.some((rating) => rating.genre === genre && rating.rating > 0)
   );
 
+  const getRealId = (watch: ExtendedRecentWatch): number | null => {
+    if (watch.tmdbId) return watch.tmdbId;
+    if (typeof watch.id === 'string' && watch.id.startsWith('recent_')) {
+        const parts = watch.id.split('_');
+        if (parts[1]) return parseInt(parts[1], 10);
+    }
+    const directCast = Number(watch.id);
+    if (!isNaN(directCast)) return directCast;
+    
+    return null;
+  };
+
   const saveChanges = async () => {
     if (favorites.length !== 4) {
       return Alert.alert('incomplete', `please select exactly 4 favorite movies (you have ${favorites.length})`);
@@ -190,6 +215,49 @@ export default function EditPreferencesScreen({ onComplete, onBack }: EditPrefer
       const currentUser = FirebaseAuthService.getCurrentUser();
       if (!currentUser) return;
 
+      // --- A: IDENTIFY REMOVED ITEMS ---
+      const finalIds = new Set(recentWatches.map(w => getRealId(w))); 
+      
+      const removedItems = initialRecentWatches.filter(w => {
+         const rId = getRealId(w);
+         return rId && !finalIds.has(rId);
+      });
+
+      // --- B: EXECUTE DELETIONS ---
+      const deletePromises = removedItems.map(async (watch) => {
+         const rId = getRealId(watch);
+         if (rId) {
+             console.log(`🗑️ Deleting removed movie: ${rId}`);
+             await deleteDoc(doc(db, 'users', currentUser.uid, 'movies', String(rId)));
+             await TMDbService.removeMovieRating(rId);
+         }
+      });
+      await Promise.all(deletePromises);
+
+      // --- C: SAVE / UPDATE REMAINING ITEMS ---
+      const movieBatchPromises = recentWatches.map(async (watch) => {
+        const realId = getRealId(watch);
+
+        if (realId && watch.rating > 0) {
+          const movieRef = doc(db, 'users', currentUser.uid, 'movies', String(realId));
+          await setDoc(movieRef, {
+            movieId: realId,
+            tmdbId: realId,
+            title: watch.title,
+            year: watch.year,
+            rating: watch.rating,
+            posterPath: watch.poster_path || null,
+            status: 'watched',
+            updatedAt: new Date(),
+          }, { merge: true });
+
+          await TMDbService.saveMovieRating(realId, watch.rating);
+        }
+      });
+
+      await Promise.all(movieBatchPromises);
+
+      // --- D: SAVE MAIN USER PROFILE ---
       await FirestoreService.saveUserProfile(currentUser.uid, {
         favorites,
         recentWatches,
@@ -210,6 +278,7 @@ export default function EditPreferencesScreen({ onComplete, onBack }: EditPrefer
         }
       ]);
     } catch (error) {
+      console.error('Save error:', error);
       Alert.alert('error', 'failed to save preferences');
     } finally {
       setSaving(false);
@@ -272,7 +341,6 @@ export default function EditPreferencesScreen({ onComplete, onBack }: EditPrefer
     if (favorites.some((f) => f.title === movie.title && f.year === movie.year)) {
       return Alert.alert('already added', 'this movie is already in your favorites');
     }
-    // Fixed: Now saves poster_path
     setFavorites((prev) => [
       ...prev,
       { 
@@ -301,11 +369,13 @@ export default function EditPreferencesScreen({ onComplete, onBack }: EditPrefer
     if (!movieToRate || tempRating === 0) {
       return Alert.alert('rating required', 'please select a rating for this movie');
     }
-    // Fixed: Now saves poster_path
+    const numericId = movieToRate.id || movieToRate.tmdb_id;
+
     setRecentWatches((prev) => [
       ...prev,
       {
-        id: `recent_${movieToRate.id}_${Date.now()}`,
+        id: `recent_${numericId}_${Date.now()}`,
+        tmdbId: numericId, 
         title: movieToRate.title,
         year: movieToRate.year,
         rating: tempRating,

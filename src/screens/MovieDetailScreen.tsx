@@ -71,7 +71,6 @@ export default function MovieDetailScreen() {
       const details = await TMDbService.getMovieDetails(movieId);
       
       if (details) {
-        // Genre düzeltmesi
         const genres = details.genres
           ? details.genres.map((g: any) => (typeof g === 'object' ? g.name : g))
           : [];
@@ -95,7 +94,8 @@ export default function MovieDetailScreen() {
   const loadUserData = async () => {
     if (!currentUser) return;
     try {
-      const movieId = (movie.id ?? movie.tmdb_id).toString();
+      // Use numeric ID for consistency if possible, else string
+      const movieId = (movie.id || movie.tmdb_id).toString();
       const userMovieRef = doc(db, 'users', currentUser.uid, 'movies', movieId);
       const userMovieDoc = await getDoc(userMovieRef);
       
@@ -104,11 +104,10 @@ export default function MovieDetailScreen() {
         const dbRating = userData.rating || 0;
         const dbStatus = userData.status || null;
         
-        // FIX: Ensure state is set correctly so stars appear filled
         setOriginalRating(dbRating);
         setOriginalStatus(dbStatus);
         setExistsInDatabase(true);
-        setTempRating(dbRating); // Critical: Update tempRating to reflect saved state
+        setTempRating(dbRating); 
         
         setMovie((prev) => ({
           ...prev,
@@ -139,17 +138,19 @@ export default function MovieDetailScreen() {
     setIsLoading(true);
     try {
       const finalStatus = tempRating > 0 ? 'watched' : null;
-      const movieId = (movie.id ?? movie.tmdb_id).toString();
+      // ALWAYS use the numeric ID for the logic to prevent "string vs number" duplicates
+      const numericMovieId = Number(movie.id || movie.tmdb_id); 
+      const stringMovieId = String(numericMovieId);
 
-      // Firestore undefined kabul etmez, null gönderiyoruz.
       const safeYear = movie.year || (movie.release_date ? new Date(movie.release_date).getFullYear() : null);
 
-      const userMovieRef = doc(db, 'users', currentUser.uid, 'movies', movieId);
+      // 1. Save INDIVIDUAL MOVIE Record
+      const userMovieRef = doc(db, 'users', currentUser.uid, 'movies', stringMovieId);
       await setDoc(
         userMovieRef,
         {
-          movieId: movie.id ?? movie.tmdb_id,
-          tmdbId: movie.tmdb_id || movie.id,
+          movieId: numericMovieId,
+          tmdbId: numericMovieId,
           title: movie.title,
           year: safeYear, 
           rating: tempRating || null,
@@ -161,55 +162,61 @@ export default function MovieDetailScreen() {
         { merge: true }
       );
 
-      // Kullanıcı ana profili güncelleme
+      // 2. Update Local Cache (AsyncStorage)
+      if (tempRating > 0) {
+        await TMDbService.saveMovieRating(numericMovieId, tempRating);
+      } else {
+        await TMDbService.removeMovieRating(numericMovieId);
+      }
+
+      // 3. Update USER PROFILE Lists
       const userRef = doc(db, 'users', currentUser.uid);
       const userDoc = await getDoc(userRef);
       
       if (userDoc.exists()) {
         const userData = userDoc.data();
-        let favorites = userData.favorites || [];
         let recentWatches = userData.recentWatches || [];
+        
+        // Note: We do NOT touch favorites here anymore to avoid unwanted adds.
 
         const movieData = {
-          id: movieId,
+          id: stringMovieId, // Use consistent string ID
+          tmdbId: numericMovieId,
           title: movie.title,
           year: safeYear, 
           poster: movie.poster_path ? `https://image.tmdb.org/t/p/w500${movie.poster_path}` : undefined,
+          poster_path: movie.poster_path
         };
 
-        // Favorites mantığı
-        const existingFavIndex = favorites.findIndex((f: any) => f.id === movieId);
-        if (tempRating >= 4) {
-          if (existingFavIndex === -1) {
-            favorites = [...favorites, movieData];
-          } else {
-            favorites[existingFavIndex] = movieData;
-          }
-        } else {
-          // Note: If user lowers rating below 4, should we remove from favs? 
-          // Current logic: Yes, remove if < 4. 
-          if (existingFavIndex !== -1) {
-            favorites = favorites.filter((f: any) => f.id !== movieId);
-          }
-        }
+        // --- UPDATE RECENT WATCHES ---
+        // Find existing index by checking ALL possible ID formats
+        const existingWatchIndex = recentWatches.findIndex((w: any) => {
+           return String(w.id) === stringMovieId || 
+                  w.tmdbId === numericMovieId || 
+                  (typeof w.id === 'string' && w.id.includes(`_${numericMovieId}_`));
+        });
 
-        // Recent watches mantığı
-        const existingWatchIndex = recentWatches.findIndex((w: any) => w.id === movieId);
         if (finalStatus === 'watched' || tempRating > 0) {
           const watchData = { ...movieData, rating: tempRating || 0 };
+          
           if (existingWatchIndex !== -1) {
-            recentWatches[existingWatchIndex] = watchData;
+            // Update existing entry, preserving its original ID key to avoid duplicates
+            const originalItem = recentWatches[existingWatchIndex];
+            recentWatches[existingWatchIndex] = { ...originalItem, ...watchData };
           } else {
+            // Add new entry
             recentWatches = [...recentWatches, watchData];
           }
           // Limit recents
           recentWatches = recentWatches.slice(-20);
         } else {
+          // If un-rated/un-watched, remove it from recents
           if (existingWatchIndex !== -1) {
-            recentWatches = recentWatches.filter((w: any) => w.id !== movieId);
+             recentWatches = recentWatches.filter((_: any, index: number) => index !== existingWatchIndex);
           }
         }
 
+        // --- UPDATE COUNTS ---
         let watchedCount = userData.watchedMovies || 0;
         const wasWatched = originalStatus === 'watched' || originalRating > 0;
         const isNowWatched = finalStatus === 'watched' || tempRating > 0;
@@ -218,7 +225,7 @@ export default function MovieDetailScreen() {
         else if (!isNowWatched && wasWatched) watchedCount -= 1;
 
         await updateDoc(userRef, {
-          favorites,
+          // favorites, // Don't update favorites automatically
           recentWatches,
           watchedMovies: Math.max(0, watchedCount),
           lastUpdated: new Date(),
@@ -235,7 +242,7 @@ export default function MovieDetailScreen() {
       setExistsInDatabase(true);
       setHasChanges(false);
       
-      Alert.alert('saved', 'your changes are saved', [{ text: 'ok', onPress: () => navigation.goBack() }]);
+      Alert.alert('saved', 'your rating has been updated', [{ text: 'ok', onPress: () => navigation.goBack() }]);
     } catch (e: any) {
       console.error(e);
       Alert.alert('error', `failed to save: ${e?.message || 'unknown error'}`);

@@ -1,6 +1,9 @@
 // src/services/TMDbService.ts
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
 const TMDB_BASE_URL = 'https://api.themoviedb.org/3';
 const TMDB_IMAGE_BASE_URL = 'https://image.tmdb.org/t/p';
+const RATED_MOVIES_KEY = '@rated_movies';
 
 export interface TMDbMovie {
   id: number;
@@ -48,6 +51,8 @@ export interface Movie {
   cast?: string[];
   release_date?: string;
   vote_average?: number;
+  isRated?: boolean;
+  userRating?: number;
 }
 
 export class TMDbService {
@@ -69,8 +74,95 @@ export class TMDbService {
       if (!response.ok) throw new Error(`TMDb Error: ${response.status}`);
       return response.json();
     } catch (error) {
-      console.error('❌ [TMDb Fetch Error]:', error);
+      console.error('⌛ [TMDb Fetch Error]:', error);
       throw error;
+    }
+  }
+
+  // --- RATED MOVIES MANAGEMENT ---
+  
+  static async getRatedMovieIds(): Promise<number[]> {
+    try {
+      const stored = await AsyncStorage.getItem(RATED_MOVIES_KEY);
+      if (!stored) return [];
+      const ratedMovies = JSON.parse(stored);
+      return Object.keys(ratedMovies).map(id => parseInt(id, 10));
+    } catch (error) {
+      console.error('Error fetching rated movie IDs:', error);
+      return [];
+    }
+  }
+
+  static async getRatedMovies(): Promise<Record<number, number>> {
+    try {
+      const stored = await AsyncStorage.getItem(RATED_MOVIES_KEY);
+      if (!stored) return {};
+      return JSON.parse(stored);
+    } catch (error) {
+      console.error('Error fetching rated movies:', error);
+      return {};
+    }
+  }
+
+  static async isMovieRated(movieId: number): Promise<boolean> {
+    try {
+      const ratedMovies = await this.getRatedMovies();
+      return movieId in ratedMovies;
+    } catch (error) {
+      return false;
+    }
+  }
+
+  static async saveMovieRating(movieId: number, rating: number): Promise<void> {
+    try {
+      const ratedMovies = await this.getRatedMovies();
+      ratedMovies[movieId] = rating;
+      await AsyncStorage.setItem(RATED_MOVIES_KEY, JSON.stringify(ratedMovies));
+    } catch (error) {
+      console.error('Error saving movie rating:', error);
+      throw error;
+    }
+  }
+
+  // --- FIX: Robust remove logic ---
+  static async removeMovieRating(movieId: number): Promise<void> {
+    try {
+      const ratedMovies = await this.getRatedMovies();
+      const key = String(movieId);
+      
+      // Check both number and string key presence before deleting
+      if (key in ratedMovies) {
+        delete ratedMovies[key];
+        await AsyncStorage.setItem(RATED_MOVIES_KEY, JSON.stringify(ratedMovies));
+        console.log(`🗑️ Removed rating for movie ${movieId} from storage`);
+      }
+    } catch (error) {
+      console.error('Error removing movie rating:', error);
+      throw error;
+    }
+  }
+
+  static async bulkSaveRatings(ratingsMap: Record<number, number>): Promise<void> {
+    try {
+      const current = await this.getRatedMovies();
+      const merged = { ...current, ...ratingsMap };
+      await AsyncStorage.setItem(RATED_MOVIES_KEY, JSON.stringify(merged));
+      console.log('✅ Bulk ratings saved to storage');
+    } catch (error) {
+      console.error('Error bulk saving ratings:', error);
+    }
+  }
+
+  static async enrichWithRatings(movies: Movie[]): Promise<Movie[]> {
+    try {
+      const ratedMovies = await this.getRatedMovies();
+      return movies.map(movie => ({
+        ...movie,
+        isRated: movie.id in ratedMovies,
+        userRating: ratedMovies[movie.id] || undefined
+      }));
+    } catch (error) {
+      return movies;
     }
   }
 
@@ -85,23 +177,34 @@ export class TMDbService {
   }
 
   // --- SEARCH ---
-  static async searchMovies(query: string): Promise<Movie[]> {
+  static async searchMovies(query: string, filterRated: boolean = false): Promise<Movie[]> {
     try {
       if (this.genreCache.size === 0) await this.getGenres();
       const data = await this.fetchFromTMDb('/search/movie', { query: query.trim(), include_adult: 'false' });
-      return data.results.map((m: any) => this.convertTMDbToMovie(m));
-    } catch (e) { return []; }
+      let movies = data.results.map((m: any) => this.convertTMDbToMovie(m));
+      
+      console.log(`📥 TMDb returned ${movies.length} movies for "${query}"`);
+      
+      movies = await this.enrichWithRatings(movies);
+      
+      if (filterRated) {
+        movies = movies.filter(m => !m.isRated);
+      }
+      
+      return movies;
+    } catch (e) { 
+      console.error('❌ Search error:', e);
+      return []; 
+    }
   }
 
-  // --- MOVIE LISTS (Restored) ---
+  // --- MOVIE LISTS ---
   static async getNowPlayingMovies(page: number = 1): Promise<Movie[]> {
     try {
       if (this.genreCache.size === 0) await this.getGenres();
-      const data = await this.fetchFromTMDb('/movie/now_playing', { 
-        page: page.toString(), 
-        region: 'TR' 
-      });
-      return data.results.map((m: any) => this.convertTMDbToMovie(m));
+      const data = await this.fetchFromTMDb('/movie/now_playing', { page: page.toString(), region: 'TR' });
+      const movies = data.results.map((m: any) => this.convertTMDbToMovie(m));
+      return await this.enrichWithRatings(movies);
     } catch (e) { return []; }
   }
 
@@ -109,7 +212,8 @@ export class TMDbService {
     try {
       if (this.genreCache.size === 0) await this.getGenres();
       const data = await this.fetchFromTMDb('/movie/popular');
-      return data.results.map((m: any) => this.convertTMDbToMovie(m));
+      const movies = data.results.map((m: any) => this.convertTMDbToMovie(m));
+      return await this.enrichWithRatings(movies);
     } catch (e) { return []; }
   }
 
@@ -117,7 +221,8 @@ export class TMDbService {
     try {
       if (this.genreCache.size === 0) await this.getGenres();
       const data = await this.fetchFromTMDb('/movie/top_rated', { page: page.toString() });
-      return data.results.map((m: any) => this.convertTMDbToMovie(m));
+      const movies = data.results.map((m: any) => this.convertTMDbToMovie(m));
+      return await this.enrichWithRatings(movies);
     } catch (e) { return []; }
   }
 
@@ -125,7 +230,8 @@ export class TMDbService {
     try {
       if (this.genreCache.size === 0) await this.getGenres();
       const data = await this.fetchFromTMDb(`/trending/movie/${timeWindow}`);
-      return data.results.map((m: any) => this.convertTMDbToMovie(m));
+      const movies = data.results.map((m: any) => this.convertTMDbToMovie(m));
+      return await this.enrichWithRatings(movies);
     } catch (e) { return []; }
   }
 
@@ -142,16 +248,11 @@ export class TMDbService {
     return `${TMDB_IMAGE_BASE_URL}/${size}${posterPath}`;
   }
 
-  /**
-   * Finds a poster URL for a movie title/year.
-   * Useful for filling in gaps in user profiles.
-   */
   static async findPoster(title: string, year?: number): Promise<string | null> {
     try {
       if (!title) return null;
       const results = await this.searchMovies(title);
       if (!results || results.length === 0) return null;
-
       let match = results[0];
       if (year) {
         const exactMatch = results.find(m => m.year === year);
@@ -163,13 +264,8 @@ export class TMDbService {
     }
   }
 
-  /**
-   * Automatically fills in missing posters for a user profile
-   */
   static async enrichProfile(profile: any): Promise<any> {
     const enriched = { ...profile };
-    
-    // Enrich Favorites
     if (enriched.favorites) {
       enriched.favorites = await Promise.all(enriched.favorites.map(async (fav: any) => {
         if (fav.poster) return fav; 
@@ -177,8 +273,6 @@ export class TMDbService {
         return { ...fav, poster: foundUrl };
       }));
     }
-
-    // Enrich Recents
     if (enriched.recentWatches) {
       enriched.recentWatches = await Promise.all(enriched.recentWatches.map(async (rec: any) => {
         if (rec.poster) return rec;
@@ -186,7 +280,6 @@ export class TMDbService {
         return { ...rec, poster: foundUrl };
       }));
     }
-
     return enriched;
   }
 
