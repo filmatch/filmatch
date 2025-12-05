@@ -17,11 +17,6 @@ export const CloudinaryService = {
     data.append('upload_preset', UPLOAD_PRESET); 
     data.append('cloud_name', CLOUD_NAME);
 
-    // 1. Request moderation in the upload call
-    // Note: You must enable 'AWS Rekognition' or 'WebPurify' in Cloudinary Add-ons
-    // and configure your Upload Preset to use it.
-    data.append('moderation', 'aws_rek_moderation'); 
-
     try {
       const res = await fetch(`https://api.cloudinary.com/v1_1/${CLOUD_NAME}/image/upload`, {
         method: 'post',
